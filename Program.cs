@@ -25,10 +25,10 @@ public class StickyApp : ApplicationContext
     readonly List<NoteForm> notes;
     readonly NotifyIcon tray;
     readonly ContextMenuStrip menu;
-    readonly ToolStripMenuItem showHideItem;
-    readonly ToolStripMenuItem topMostItem;
-    readonly ToolStripMenuItem hideTaskbarItem;
-    readonly ToolStripMenuItem notesMenuItem;
+    readonly ToolStripMenuItem showHideItem = null!;
+    readonly ToolStripMenuItem topMostItem = null!;
+    readonly ToolStripMenuItem hideTaskbarItem = null!;
+    readonly ToolStripMenuItem notesMenuItem = null!;
     readonly string dataPath;
     readonly Icon? customIcon;
 
@@ -43,10 +43,18 @@ public class StickyApp : ApplicationContext
         showHideItem.Click += (_, __) => ToggleNotes();
 
         topMostItem = new ToolStripMenuItem("Always on top") { CheckOnClick = true };
-        topMostItem.CheckedChanged += (_, __) => SetAllTopMost(topMostItem.Checked);
+        topMostItem.CheckedChanged += (_, __) => 
+        { 
+            SetAllTopMost(topMostItem.Checked);
+            SaveSettings();
+        };
 
         hideTaskbarItem = new ToolStripMenuItem("Hide taskbar icon") { CheckOnClick = true };
-        hideTaskbarItem.CheckedChanged += (_, __) => SetAllShowInTaskbar(!hideTaskbarItem.Checked);
+        hideTaskbarItem.CheckedChanged += (_, __) => 
+        { 
+            SetAllShowInTaskbar(!hideTaskbarItem.Checked);
+            SaveSettings();
+        };
 
         notesMenuItem = new ToolStripMenuItem("Notes");
         notesMenuItem.DropDownItems.Clear();
@@ -83,15 +91,40 @@ public class StickyApp : ApplicationContext
         };
         tray.DoubleClick += (_, __) => ToggleNotes();
 
-        var states = NoteStateCollection.Load(dataPath);
+        var collection = NoteStateCollection.Load(dataPath);
+        var states = collection.Notes;
         if (states.Count == 0)
         {
             states.Add(new NoteState { Id = Guid.NewGuid().ToString() });
         }
 
+        if (collection.Settings != null)
+        {
+            if (hideTaskbarItem != null)
+            {
+                hideTaskbarItem.Checked = collection.Settings.HideTaskbarIcon;
+            }
+            if (topMostItem != null)
+            {
+                topMostItem.Checked = collection.Settings.TopMost;
+            }
+        }
+
         foreach (var state in states)
         {
             CreateNote(state);
+        }
+
+        if (collection.Settings != null)
+        {
+            if (hideTaskbarItem != null)
+            {
+                SetAllShowInTaskbar(!hideTaskbarItem.Checked);
+            }
+            if (topMostItem != null)
+            {
+                SetAllTopMost(topMostItem.Checked);
+            }
         }
 
         UpdateTopMostMenu();
@@ -256,7 +289,22 @@ public class StickyApp : ApplicationContext
     void SaveAllStates()
     {
         var states = notes.Select(n => n.GetState()).ToList();
-        NoteStateCollection.Save(dataPath, states);
+        NoteStateCollection.Save(dataPath, states, GetSettings());
+    }
+
+    AppSettings GetSettings()
+    {
+        return new AppSettings
+        {
+            HideTaskbarIcon = hideTaskbarItem?.Checked ?? false,
+            TopMost = topMostItem?.Checked ?? false
+        };
+    }
+
+    void SaveSettings()
+    {
+        var states = notes.Select(n => n.GetState()).ToList();
+        NoteStateCollection.Save(dataPath, states, GetSettings());
     }
 
     public void SaveAllStatesRequested()
@@ -855,11 +903,18 @@ public class NoteState
     public int Height { get; set; } = 320;
 }
 
+public class AppSettings
+{
+    public bool HideTaskbarIcon { get; set; }
+    public bool TopMost { get; set; }
+}
+
 public class NoteStateCollection
 {
     public List<NoteState> Notes { get; set; } = new List<NoteState>();
+    public AppSettings? Settings { get; set; }
 
-    public static List<NoteState> Load(string path)
+    public static NoteStateCollection Load(string path)
     {
         try
         {
@@ -867,18 +922,18 @@ public class NoteStateCollection
             {
                 var json = File.ReadAllText(path, Encoding.UTF8);
                 var collection = JsonSerializer.Deserialize<NoteStateCollection>(json);
-                if (collection?.Notes != null && collection.Notes.Count > 0) return collection.Notes;
+                if (collection != null) return collection;
             }
         }
         catch { }
-        return new List<NoteState>();
+        return new NoteStateCollection { Notes = new List<NoteState>() };
     }
 
-    public static void Save(string path, List<NoteState> states)
+    public static void Save(string path, List<NoteState> states, AppSettings? settings = null)
     {
         try
         {
-            var collection = new NoteStateCollection { Notes = states };
+            var collection = new NoteStateCollection { Notes = states, Settings = settings };
             var json = JsonSerializer.Serialize(collection, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(path, json, Encoding.UTF8);
         }
