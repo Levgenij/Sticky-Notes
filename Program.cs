@@ -28,6 +28,7 @@ public class StickyApp : ApplicationContext
     readonly ToolStripMenuItem showHideItem;
     readonly ToolStripMenuItem topMostItem;
     readonly ToolStripMenuItem hideTaskbarItem;
+    readonly ToolStripMenuItem notesMenuItem;
     readonly string dataPath;
     readonly Icon? customIcon;
 
@@ -47,13 +48,16 @@ public class StickyApp : ApplicationContext
         hideTaskbarItem = new ToolStripMenuItem("Hide taskbar icon") { CheckOnClick = true };
         hideTaskbarItem.CheckedChanged += (_, __) => SetAllShowInTaskbar(!hideTaskbarItem.Checked);
 
+        notesMenuItem = new ToolStripMenuItem("Notes");
+        notesMenuItem.DropDownItems.Clear();
+
         var newNoteItem = new ToolStripMenuItem("New note");
         newNoteItem.Click += (_, __) => CreateNewNote();
 
         var exitItem = new ToolStripMenuItem("Exit");
         exitItem.Click += (_, __) => ExitApp();
 
-        menu.Items.AddRange(new ToolStripItem[] { showHideItem, topMostItem, hideTaskbarItem, new ToolStripSeparator(), newNoteItem, new ToolStripSeparator(), exitItem });
+        menu.Items.AddRange(new ToolStripItem[] { showHideItem, topMostItem, hideTaskbarItem, new ToolStripSeparator(), notesMenuItem, newNoteItem, new ToolStripSeparator(), exitItem });
 
         try
         {
@@ -92,16 +96,22 @@ public class StickyApp : ApplicationContext
 
         UpdateTopMostMenu();
         UpdateTrayText();
+        UpdateNotesMenu();
     }
 
     void CreateNote(NoteState state)
     {
         var note = new NoteForm(state, this);
-        note.VisibleChanged += (_, __) => UpdateTrayText();
+        note.VisibleChanged += (_, __) => 
+        {
+            UpdateTrayText();
+            UpdateNotesMenu();
+        };
         note.FormClosed += (_, __) => RemoveNote(note);
         note.RequestExit += (_, __) => ExitApp();
         note.RequestNewNote += (_, __) => CreateNewNote();
         note.RequestDelete += (_, __) => DeleteNote(note);
+        note.NoteTextChanged += (_, __) => UpdateNotesMenu();
         notes.Add(note);
         if (hideTaskbarItem != null)
         {
@@ -109,6 +119,7 @@ public class StickyApp : ApplicationContext
         }
         note.Show();
         UpdateTopMostMenu();
+        UpdateNotesMenu();
     }
 
     void CreateNewNote()
@@ -128,6 +139,7 @@ public class StickyApp : ApplicationContext
         notes.Remove(note);
         SaveAllStates();
         UpdateTrayText();
+        UpdateNotesMenu();
     }
 
     void DeleteNote(NoteForm note)
@@ -137,6 +149,7 @@ public class StickyApp : ApplicationContext
         note.Close();
         SaveAllStates();
         UpdateTrayText();
+        UpdateNotesMenu();
     }
 
     void ToggleNotes()
@@ -160,6 +173,7 @@ public class StickyApp : ApplicationContext
             }
         }
         UpdateTrayText();
+        UpdateNotesMenu();
     }
 
     void UpdateTopMostMenu()
@@ -190,6 +204,46 @@ public class StickyApp : ApplicationContext
         var visibleCount = notes.Count(n => n.Visible);
         showHideItem.Text = visibleCount > 0 ? "Hide all" : "Show all";
         tray.Text = $"Sticky Notes ({notes.Count})";
+    }
+
+    void UpdateNotesMenu()
+    {
+        if (notesMenuItem == null) return;
+
+        notesMenuItem.DropDownItems.Clear();
+
+        if (notes.Count == 0)
+        {
+            notesMenuItem.Enabled = false;
+            return;
+        }
+
+        notesMenuItem.Enabled = true;
+
+        for (int i = 0; i < notes.Count; i++)
+        {
+            var note = notes[i];
+            var text = note.GetText();
+            var cleanText = text?.Replace("\r\n", " ").Replace("\n", " ").Replace("\r", " ").Trim() ?? string.Empty;
+            var preview = string.IsNullOrWhiteSpace(cleanText) ? "(empty)" : cleanText.Length > 20 ? cleanText.Substring(0, 20) : cleanText;
+            preview += " ";
+            var status = note.Visible ? "+" : "-";
+            var menuItem = new ToolStripMenuItem($"{i + 1}. {status} {preview}");
+            menuItem.Click += (_, __) => 
+            {
+                if (note.Visible)
+                {
+                    note.Hide();
+                }
+                else
+                {
+                    note.Show();
+                    note.Activate();
+                }
+                UpdateTrayText();
+            };
+            notesMenuItem.DropDownItems.Add(menuItem);
+        }
     }
 
     void ExitApp()
@@ -272,6 +326,7 @@ public class NoteForm : Form
     public event EventHandler? RequestExit;
     public event EventHandler? RequestNewNote;
     public event EventHandler? RequestDelete;
+    public event EventHandler? NoteTextChanged;
 
     public NoteForm(NoteState state, StickyApp? app = null)
     {
@@ -517,7 +572,11 @@ public class NoteForm : Form
 
         autosaveTimer = new System.Windows.Forms.Timer { Interval = 800 }; // debounce
         autosaveTimer.Tick += (_, __) => { autosaveTimer.Stop(); SaveState(); };
-        editor.TextChanged += (_, __) => autosaveTimer.Start();
+        editor.TextChanged += (_, __) => 
+        { 
+            autosaveTimer.Start();
+            NoteTextChanged?.Invoke(this, EventArgs.Empty);
+        };
 
         MouseDown += NoteForm_MouseDown;
         MouseEnter += (_, __) => 
@@ -746,6 +805,11 @@ public class NoteForm : Form
             Width = Bounds.Width,
             Height = Bounds.Height
         };
+    }
+
+    public string GetText()
+    {
+        return editor.Text;
     }
 
     public void SaveState()
