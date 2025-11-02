@@ -12,6 +12,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using Microsoft.Win32;
 using Svg;
+using System.Reflection;
 
 internal static class Program
 {
@@ -21,6 +22,51 @@ internal static class Program
         ApplicationConfiguration.Initialize();
         using var app = new StickyApp();
         Application.Run(app);
+    }
+}
+
+static class ResourceHelper
+{
+    static readonly Assembly assembly = Assembly.GetExecutingAssembly();
+    static readonly string assemblyName = assembly.GetName().Name ?? "";
+
+    public static Stream? GetResourceStream(string resourceName)
+    {
+        var normalizedName = resourceName.Replace('/', '.').Replace('\\', '.');
+        var fullName = $"{assemblyName}.{normalizedName}";
+        var stream = assembly.GetManifestResourceStream(fullName);
+        if (stream != null) return stream;
+        
+        fullName = assembly.GetManifestResourceNames().FirstOrDefault(n => n.EndsWith(normalizedName, StringComparison.OrdinalIgnoreCase));
+        return fullName != null ? assembly.GetManifestResourceStream(fullName) : null;
+    }
+
+    public static Icon? LoadIconFromResource(string resourceName)
+    {
+        try
+        {
+            using var stream = GetResourceStream(resourceName);
+            if (stream != null)
+            {
+                return new Icon(stream);
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    public static SvgDocument? LoadSvgFromResource(string resourceName)
+    {
+        try
+        {
+            using var stream = GetResourceStream(resourceName);
+            if (stream != null)
+            {
+                return SvgDocument.Open<SvgDocument>(stream);
+            }
+        }
+        catch { }
+        return null;
     }
 }
 
@@ -90,11 +136,7 @@ public class StickyApp : ApplicationContext
 
         try
         {
-            var iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "icon.ico");
-            if (File.Exists(iconPath))
-            {
-                customIcon = new Icon(iconPath);
-            }
+            customIcon = ResourceHelper.LoadIconFromResource("icon.ico");
         }
         catch (Exception ex) { Console.WriteLine(ex); }
 
@@ -654,16 +696,10 @@ public class NoteForm : Form
             ImageAlign = ContentAlignment.MiddleCenter
         };
         
-        var clipboardNormalPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "assests/icons/clipboard.svg");
-        var clipboardCheckPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "assests/icons/clipboard-check.svg");
-        
         try
         {
-            if (File.Exists(clipboardNormalPath))
-            {
-                var bitmap = LoadSvgAsBitmap(clipboardNormalPath, 20, 20, Color.FromArgb(100, 100, 100));
-                clipboardButton.Image = bitmap;
-            }
+            var bitmap = LoadSvgAsBitmap("assests/icons/clipboard.svg", 20, 20, Color.FromArgb(100, 100, 100));
+            clipboardButton.Image = bitmap;
         }
         catch (Exception ex)
         {
@@ -676,13 +712,10 @@ public class NoteForm : Form
             clipboardButton.BackColor = Color.FromArgb(255, 255, 200);
             try
             {
-                var currentIconPath = isClipboardCheckIcon ? clipboardCheckPath : clipboardNormalPath;
-                if (File.Exists(currentIconPath))
-                {
-                    var blackBitmap = LoadSvgAsBitmap(currentIconPath, 20, 20, Color.Black);
-                    clipboardButton.Image?.Dispose();
-                    clipboardButton.Image = blackBitmap;
-                }
+                var resourceName = isClipboardCheckIcon ? "assests/icons/clipboard-check.svg" : "assests/icons/clipboard.svg";
+                var blackBitmap = LoadSvgAsBitmap(resourceName, 20, 20, Color.Black);
+                clipboardButton.Image?.Dispose();
+                clipboardButton.Image = blackBitmap;
             }
             catch (Exception ex)
             {
@@ -694,13 +727,10 @@ public class NoteForm : Form
             clipboardButton.BackColor = Color.FromArgb(255, 255, 248, 180);
             try
             {
-                var currentIconPath = isClipboardCheckIcon ? clipboardCheckPath : clipboardNormalPath;
-                if (File.Exists(currentIconPath))
-                {
-                    var grayBitmap = LoadSvgAsBitmap(currentIconPath, 20, 20, Color.FromArgb(100, 100, 100));
-                    clipboardButton.Image?.Dispose();
-                    clipboardButton.Image = grayBitmap;
-                }
+                var resourceName = isClipboardCheckIcon ? "assests/icons/clipboard-check.svg" : "assests/icons/clipboard.svg";
+                var grayBitmap = LoadSvgAsBitmap(resourceName, 20, 20, Color.FromArgb(100, 100, 100));
+                clipboardButton.Image?.Dispose();
+                clipboardButton.Image = grayBitmap;
             }
             catch (Exception ex)
             {
@@ -761,12 +791,8 @@ public class NoteForm : Form
         
         try
         {
-            var iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "assests/icons/arrow-down-right.svg");
-            if (File.Exists(iconPath))
-            {
-                var iconBitmap = LoadSvgAsBitmap(iconPath, 20, 20, Color.FromArgb(180, 180, 180));
-                resizeIcon.Image = iconBitmap;
-            }
+            var iconBitmap = LoadSvgAsBitmap("assests/icons/arrow-down-right.svg", 20, 20, Color.FromArgb(180, 180, 180));
+            resizeIcon.Image = iconBitmap;
         }
         catch (Exception ex)
         {
@@ -987,7 +1013,7 @@ public class NoteForm : Form
         }
     }
 
-    Label CreateFormatButton(string svgPath, Action clickAction)
+    Label CreateFormatButton(string svgResourceName, Action clickAction)
     {
         var button = new Label
         {
@@ -1001,19 +1027,14 @@ public class NoteForm : Form
             ImageAlign = ContentAlignment.MiddleCenter
         };
         
-        var fullSvgPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, svgPath);
-        
         try
         {
-            if (File.Exists(fullSvgPath))
-            {
-                var bitmap = LoadSvgAsBitmap(fullSvgPath, 20, 20, Color.FromArgb(100, 100, 100));
-                button.Image = bitmap;
-            }
+            var bitmap = LoadSvgAsBitmap(svgResourceName, 20, 20, Color.FromArgb(100, 100, 100));
+            button.Image = bitmap;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error loading SVG {svgPath}: {ex}");
+            Console.WriteLine($"Error loading SVG {svgResourceName}: {ex}");
         }
         
         button.Click += (_, __) => clickAction();
@@ -1022,12 +1043,9 @@ public class NoteForm : Form
             button.BackColor = Color.FromArgb(255, 255, 200);
             try
             {
-                if (File.Exists(fullSvgPath))
-                {
-                    var blackBitmap = LoadSvgAsBitmap(fullSvgPath, 20, 20, Color.Black);
-                    button.Image?.Dispose();
-                    button.Image = blackBitmap;
-                }
+                var blackBitmap = LoadSvgAsBitmap(svgResourceName, 20, 20, Color.Black);
+                button.Image?.Dispose();
+                button.Image = blackBitmap;
             }
             catch (Exception ex)
             {
@@ -1039,12 +1057,9 @@ public class NoteForm : Form
             button.BackColor = Color.FromArgb(255, 255, 248, 180);
             try
             {
-                if (File.Exists(fullSvgPath))
-                {
-                    var grayBitmap = LoadSvgAsBitmap(fullSvgPath, 20, 20, Color.FromArgb(100, 100, 100));
-                    button.Image?.Dispose();
-                    button.Image = grayBitmap;
-                }
+                var grayBitmap = LoadSvgAsBitmap(svgResourceName, 20, 20, Color.FromArgb(100, 100, 100));
+                button.Image?.Dispose();
+                button.Image = grayBitmap;
             }
             catch (Exception ex)
             {
@@ -1055,11 +1070,16 @@ public class NoteForm : Form
         return button;
     }
 
-    Bitmap LoadSvgAsBitmap(string svgPath, int width, int height, Color color)
+    Bitmap LoadSvgAsBitmap(string svgResourceName, int width, int height, Color color)
     {
         try
         {
-            var svgDocument = SvgDocument.Open(svgPath);
+            var svgDocument = ResourceHelper.LoadSvgFromResource(svgResourceName);
+            if (svgDocument == null)
+            {
+                return new Bitmap(width, height);
+            }
+            
             var scale = 2.0f;
             var scaledWidth = (int)(width * scale);
             var scaledHeight = (int)(height * scale);
@@ -1067,10 +1087,7 @@ public class NoteForm : Form
             svgDocument.Width = new SvgUnit(scaledWidth);
             svgDocument.Height = new SvgUnit(scaledHeight);
             
-            if (svgDocument != null)
-            {
-                SetSvgColor(svgDocument, color);
-            }
+            SetSvgColor(svgDocument, color);
             
             var bitmap = new Bitmap(scaledWidth, scaledHeight);
             using (var graphics = Graphics.FromImage(bitmap))
@@ -1079,10 +1096,7 @@ public class NoteForm : Form
                 graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
                 graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
                 graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-                if (svgDocument != null)
-                {
-                    svgDocument.Draw(graphics);
-                }
+                svgDocument.Draw(graphics);
             }
             
             var resized = new Bitmap(width, height);
@@ -1328,14 +1342,10 @@ public class NoteForm : Form
     {
         try
         {
-            var fullPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "assests/icons/clipboard-check.svg");
-            if (File.Exists(fullPath))
-            {
-                isClipboardCheckIcon = true;
-                var checkBitmap = LoadSvgAsBitmap(fullPath, 20, 20, Color.FromArgb(100, 100, 100));
-                clipboardButton.Image?.Dispose();
-                clipboardButton.Image = checkBitmap;
-            }
+            isClipboardCheckIcon = true;
+            var checkBitmap = LoadSvgAsBitmap("assests/icons/clipboard-check.svg", 20, 20, Color.FromArgb(100, 100, 100));
+            clipboardButton.Image?.Dispose();
+            clipboardButton.Image = checkBitmap;
         }
         catch (Exception ex)
         {
@@ -1347,14 +1357,10 @@ public class NoteForm : Form
     {
         try
         {
-            var fullPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "assests/icons/clipboard.svg");
-            if (File.Exists(fullPath))
-            {
-                isClipboardCheckIcon = false;
-                var normalBitmap = LoadSvgAsBitmap(fullPath, 20, 20, Color.FromArgb(100, 100, 100));
-                clipboardButton.Image?.Dispose();
-                clipboardButton.Image = normalBitmap;
-            }
+            isClipboardCheckIcon = false;
+            var normalBitmap = LoadSvgAsBitmap("assests/icons/clipboard.svg", 20, 20, Color.FromArgb(100, 100, 100));
+            clipboardButton.Image?.Dispose();
+            clipboardButton.Image = normalBitmap;
         }
         catch (Exception ex)
         {
