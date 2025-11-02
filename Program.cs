@@ -34,6 +34,7 @@ public class StickyApp : ApplicationContext
     readonly ToolStripMenuItem topMostItem = null!;
     readonly ToolStripMenuItem hideTaskbarItem = null!;
     readonly ToolStripMenuItem runAtStartupItem = null!;
+    readonly ToolStripMenuItem confirmDeleteItem = null!;
     readonly ToolStripMenuItem notesMenuItem = null!;
     readonly string dataPath;
     readonly Icon? customIcon;
@@ -70,6 +71,9 @@ public class StickyApp : ApplicationContext
             SaveSettings();
         };
 
+        confirmDeleteItem = new ToolStripMenuItem("Confirm delete") { CheckOnClick = true };
+        confirmDeleteItem.CheckedChanged += (_, __) => SaveSettings();
+
         notesMenuItem = new ToolStripMenuItem("Notes");
         notesMenuItem.DropDownItems.Clear();
 
@@ -82,7 +86,7 @@ public class StickyApp : ApplicationContext
         var exitItem = new ToolStripMenuItem("Exit");
         exitItem.Click += (_, __) => ExitApp();
 
-        menu.Items.AddRange(new ToolStripItem[] { showHideItem, topMostItem, hideTaskbarItem, runAtStartupItem, new ToolStripSeparator(), notesMenuItem, newNoteItem, new ToolStripSeparator(), aboutItem, exitItem });
+        menu.Items.AddRange(new ToolStripItem[] { showHideItem, topMostItem, hideTaskbarItem, runAtStartupItem, confirmDeleteItem, new ToolStripSeparator(), notesMenuItem, newNoteItem, new ToolStripSeparator(), aboutItem, exitItem });
 
         try
         {
@@ -128,6 +132,17 @@ public class StickyApp : ApplicationContext
                 {
                     SetRunAtStartup(runAtStartupItem.Checked);
                 }
+            }
+            if (confirmDeleteItem != null)
+            {
+                confirmDeleteItem.Checked = collection.Settings.ConfirmDelete ?? true;
+            }
+        }
+        else
+        {
+            if (confirmDeleteItem != null)
+            {
+                confirmDeleteItem.Checked = true;
             }
         }
 
@@ -206,12 +221,29 @@ public class StickyApp : ApplicationContext
 
     void DeleteNote(NoteForm note)
     {
-        note.SaveState();
-        notes.Remove(note);
-        note.Close();
-        SaveAllStates();
-        UpdateTrayText();
-        UpdateNotesMenu();
+        bool shouldDelete = true;
+        
+        if (confirmDeleteItem != null && confirmDeleteItem.Checked)
+        {
+            var result = MessageBox.Show(
+                "Are you sure you want to delete this note?",
+                "Delete Note",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question,
+                MessageBoxDefaultButton.Button2);
+            
+            shouldDelete = result == DialogResult.Yes;
+        }
+        
+        if (shouldDelete)
+        {
+            note.SaveState();
+            notes.Remove(note);
+            note.Close();
+            SaveAllStates();
+            UpdateTrayText();
+            UpdateNotesMenu();
+        }
     }
 
     void ToggleNotes()
@@ -327,7 +359,8 @@ public class StickyApp : ApplicationContext
         {
             HideTaskbarIcon = hideTaskbarItem?.Checked ?? false,
             TopMost = topMostItem?.Checked ?? false,
-            RunAtStartup = runAtStartupItem?.Checked ?? false
+            RunAtStartup = runAtStartupItem?.Checked ?? false,
+            ConfirmDelete = confirmDeleteItem?.Checked ?? true
         };
     }
 
@@ -1622,6 +1655,7 @@ public class AppSettings
     public bool HideTaskbarIcon { get; set; }
     public bool TopMost { get; set; }
     public bool? RunAtStartup { get; set; }
+    public bool? ConfirmDelete { get; set; }
 }
 
 public class NoteStateCollection
