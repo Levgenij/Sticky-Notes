@@ -5,7 +5,8 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.Json;
-using System.Text; 
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Windows.Forms;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -462,6 +463,8 @@ public class NoteForm : Form
     readonly Label underlineButton;
     readonly Label strikethroughButton;
     readonly Label listButton;
+    readonly Label listOrderedButton;
+    readonly Label removeFormattingButton;
     readonly System.Windows.Forms.Timer autosaveTimer;
     readonly System.Windows.Forms.Timer hideToolbarTimer;
     readonly string dataPath;
@@ -592,8 +595,14 @@ public class NoteForm : Form
         strikethroughButton = CreateFormatButton("assests/icons/strikethrough.svg", ToggleStrikethrough);
         formatToolbar.Controls.Add(strikethroughButton);
 
+        removeFormattingButton = CreateFormatButton("assests/icons/remove-formatting.svg", ClearFormatting);
+        formatToolbar.Controls.Add(removeFormattingButton);
+
         listButton = CreateFormatButton("assests/icons/list.svg", InsertList);
         formatToolbar.Controls.Add(listButton);
+
+        listOrderedButton = CreateFormatButton("assests/icons/list-ordered.svg", InsertOrderedList);
+        formatToolbar.Controls.Add(listOrderedButton);
 
         formatToolbar.Resize += (_, __) => UpdateFormatButtonPositions();
 
@@ -754,6 +763,8 @@ public class NoteForm : Form
             autosaveTimer.Start();
             NoteTextChanged?.Invoke(this, EventArgs.Empty);
         };
+        
+        editor.KeyDown += Editor_KeyDown;
 
         MouseDown += NoteForm_MouseDown;
         MouseEnter += (_, __) => 
@@ -939,7 +950,9 @@ public class NoteForm : Form
             italicButton.Location = new Point(startX + buttonSize + buttonSpacing, buttonTop);
             underlineButton.Location = new Point(startX + (buttonSize + buttonSpacing) * 2, buttonTop);
             strikethroughButton.Location = new Point(startX + (buttonSize + buttonSpacing) * 3, buttonTop);
-            listButton.Location = new Point(startX + (buttonSize + buttonSpacing) * 4, buttonTop);
+            removeFormattingButton.Location = new Point(startX + (buttonSize + buttonSpacing) * 4, buttonTop);
+            listButton.Location = new Point(startX + (buttonSize + buttonSpacing) * 5, buttonTop);
+            listOrderedButton.Location = new Point(startX + (buttonSize + buttonSpacing) * 6, buttonTop);
         }
     }
 
@@ -1039,6 +1052,100 @@ public class NoteForm : Form
         {
             editor.SelectedText = "• ";
             editor.SelectionStart = editor.SelectionStart + 2;
+        }
+    }
+
+    void InsertOrderedList()
+    {
+        editor.Focus();
+        var selectionStart = editor.SelectionStart;
+        var selectionLength = editor.SelectionLength;
+        
+        if (selectionLength > 0)
+        {
+            var selectedText = editor.SelectedText;
+            var lines = selectedText.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+            int lineNumber = 1;
+            var listText = string.Join("\r\n", lines.Select(line => 
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    return "";
+                }
+                return $"{lineNumber++}. {line.Trim()}";
+            }));
+            
+            editor.SelectedText = listText;
+            editor.SelectionStart = selectionStart;
+            editor.SelectionLength = listText.Length;
+        }
+        else
+        {
+            editor.SelectedText = "1. ";
+            editor.SelectionStart = editor.SelectionStart + 3;
+        }
+    }
+
+    void ClearFormatting()
+    {
+        editor.Focus();
+        if (editor.SelectionLength > 0)
+        {
+            var currentFont = editor.SelectionFont ?? editor.Font;
+            var defaultFont = new Font(currentFont.FontFamily, currentFont.Size, FontStyle.Regular);
+            editor.SelectionFont = defaultFont;
+        }
+    }
+
+    void Editor_KeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.KeyCode != Keys.Enter) return;
+        
+        var cursorPos = editor.SelectionStart;
+        var text = editor.Text;
+        
+        if (cursorPos < 0 || cursorPos > text.Length) return;
+        
+        var lineIndex = editor.GetLineFromCharIndex(cursorPos);
+        var lineStart = editor.GetFirstCharIndexFromLine(lineIndex);
+        if (lineStart < 0) return;
+        
+        var lineEnd = cursorPos;
+        while (lineEnd < text.Length && text[lineEnd] != '\n' && text[lineEnd] != '\r')
+        {
+            lineEnd++;
+        }
+        
+        if (lineStart >= text.Length) return;
+        
+        var lineLength = Math.Min(lineEnd - lineStart, text.Length - lineStart);
+        var currentLine = text.Substring(lineStart, lineLength);
+        var trimmedLine = currentLine.TrimStart();
+        
+        if (trimmedLine.StartsWith("• "))
+        {
+            e.Handled = true;
+            
+            var indent = currentLine.Length - currentLine.TrimStart().Length;
+            var indentStr = indent > 0 ? currentLine.Substring(0, indent) : "";
+            
+            editor.SelectedText = "\r\n" + indentStr + "• ";
+            editor.SelectionStart = editor.SelectionStart;
+        }
+        else
+        {
+            var numberedMatch = Regex.Match(trimmedLine, @"^(\d+)\. ");
+            if (numberedMatch.Success && int.TryParse(numberedMatch.Groups[1].Value, out int currentNumber))
+            {
+                e.Handled = true;
+                
+                var indent = currentLine.Length - currentLine.TrimStart().Length;
+                var indentStr = indent > 0 ? currentLine.Substring(0, indent) : "";
+                
+                var nextNumber = currentNumber + 1;
+                editor.SelectedText = "\r\n" + indentStr + nextNumber + ". ";
+                editor.SelectionStart = editor.SelectionStart;
+            }
         }
     }
 
@@ -1154,7 +1261,7 @@ public class NoteForm : Form
             
             if (control == addButton || control == closeButton || control == deleteButton || 
                 control == boldButton || control == italicButton || control == underlineButton || 
-                control == strikethroughButton || control == listButton || control == editor)
+                control == strikethroughButton || control == listButton || control == listOrderedButton || control == removeFormattingButton || control == editor)
             {
                 return;
             }
