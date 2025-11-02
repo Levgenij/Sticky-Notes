@@ -465,6 +465,7 @@ public class NoteForm : Form
     readonly Label listButton;
     readonly Label listOrderedButton;
     readonly Label removeFormattingButton;
+    readonly Panel formatToolbar;
     readonly System.Windows.Forms.Timer autosaveTimer;
     readonly System.Windows.Forms.Timer hideToolbarTimer;
     readonly string dataPath;
@@ -575,10 +576,10 @@ public class NoteForm : Form
         cms.Items.AddRange(new ToolStripItem[] { copy, paste, cut, clear, new ToolStripSeparator(), minimizeToTray, exit });
         editor.ContextMenuStrip = cms;
 
-        var formatToolbar = new Panel
+        formatToolbar = new Panel
         {
             Dock = DockStyle.Bottom,
-            Height = 30,
+            Height = 0,
             BackColor = Color.FromArgb(255, 255, 248, 180)
         };
         formatToolbar.MouseDown += NoteForm_MouseDown;
@@ -831,12 +832,13 @@ public class NoteForm : Form
             ImageAlign = ContentAlignment.MiddleCenter
         };
         
+        var fullSvgPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, svgPath);
+        
         try
         {
-            var fullPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, svgPath);
-            if (File.Exists(fullPath))
+            if (File.Exists(fullSvgPath))
             {
-                var bitmap = LoadSvgAsBitmap(fullPath, 20, 20);
+                var bitmap = LoadSvgAsBitmap(fullSvgPath, 20, 20, Color.FromArgb(100, 100, 100));
                 button.Image = bitmap;
             }
         }
@@ -846,13 +848,45 @@ public class NoteForm : Form
         }
         
         button.Click += (_, __) => clickAction();
-        button.MouseEnter += (_, __) => button.BackColor = Color.FromArgb(255, 255, 200);
-        button.MouseLeave += (_, __) => button.BackColor = Color.FromArgb(255, 255, 248, 180);
+        button.MouseEnter += (_, __) => 
+        { 
+            button.BackColor = Color.FromArgb(255, 255, 200);
+            try
+            {
+                if (File.Exists(fullSvgPath))
+                {
+                    var blackBitmap = LoadSvgAsBitmap(fullSvgPath, 20, 20, Color.Black);
+                    button.Image?.Dispose();
+                    button.Image = blackBitmap;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error updating SVG color on hover: {ex}");
+            }
+        };
+        button.MouseLeave += (_, __) => 
+        { 
+            button.BackColor = Color.FromArgb(255, 255, 248, 180);
+            try
+            {
+                if (File.Exists(fullSvgPath))
+                {
+                    var grayBitmap = LoadSvgAsBitmap(fullSvgPath, 20, 20, Color.FromArgb(100, 100, 100));
+                    button.Image?.Dispose();
+                    button.Image = grayBitmap;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error updating SVG color on leave: {ex}");
+            }
+        };
         
         return button;
     }
 
-    Bitmap LoadSvgAsBitmap(string svgPath, int width, int height)
+    Bitmap LoadSvgAsBitmap(string svgPath, int width, int height, Color color)
     {
         try
         {
@@ -864,7 +898,6 @@ public class NoteForm : Form
             svgDocument.Width = new SvgUnit(scaledWidth);
             svgDocument.Height = new SvgUnit(scaledHeight);
             
-            var color = Color.Black;
             if (svgDocument != null)
             {
                 SetSvgColor(svgDocument, color);
@@ -1157,6 +1190,12 @@ public class NoteForm : Form
             toolbar.Height = 30;
             UpdateButtonPositions();
         }
+        
+        if (formatToolbar != null && formatToolbar.Height == 0)
+        {
+            formatToolbar.Height = 30;
+            UpdateFormatButtonPositions();
+        }
     }
 
     void HideToolbar()
@@ -1165,6 +1204,11 @@ public class NoteForm : Form
         if (toolbar != null && toolbar.Height > 0)
         {
             toolbar.Height = 0;
+        }
+        
+        if (formatToolbar != null && formatToolbar.Height > 0)
+        {
+            formatToolbar.Height = 0;
         }
     }
 
