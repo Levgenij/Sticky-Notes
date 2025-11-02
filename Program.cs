@@ -83,15 +83,10 @@ public class StickyApp : ApplicationContext
 
         try
         {
-            var trayIconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tray.png");
-            if (File.Exists(trayIconPath))
+            var iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "icon.ico");
+            if (File.Exists(iconPath))
             {
-                using (var srcBmp = new Bitmap(trayIconPath))
-                using (var resized = new Bitmap(srcBmp, new Size(32, 32)))
-                {
-                    var hIcon = resized.GetHicon();
-                    customIcon = Icon.FromHandle(hIcon);
-                }
+                customIcon = new Icon(iconPath);
             }
         }
         catch (Exception ex) { Console.WriteLine(ex); }
@@ -487,15 +482,10 @@ public class NoteForm : Form
 
         try
         {
-            var iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "icon.png");
+            var iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "icon.ico");
             if (File.Exists(iconPath))
             {
-                using (var srcBmp = new Bitmap(iconPath))
-                using (var resized = new Bitmap(srcBmp, new Size(32, 32)))
-                {
-                    var hIcon = resized.GetHicon();
-                    Icon = Icon.FromHandle(hIcon);
-                }
+                Icon = new Icon(iconPath);
             }
         }
         catch (Exception ex) { Console.WriteLine(ex); }
