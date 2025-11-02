@@ -154,6 +154,10 @@ public class StickyApp : ApplicationContext
         {
             note.ShowInTaskbar = !hideTaskbarItem.Checked;
         }
+        if (topMostItem != null)
+        {
+            note.TopMost = topMostItem.Checked;
+        }
         note.Show();
         UpdateTopMostMenu();
         UpdateNotesMenu();
