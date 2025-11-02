@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text; 
@@ -20,7 +22,7 @@ internal static class Program
 public class StickyApp : ApplicationContext
 {
 
-    readonly NoteForm note;
+    readonly List<NoteForm> notes;
     readonly NotifyIcon tray;
     readonly ContextMenuStrip menu;
     readonly ToolStripMenuItem showHideItem;
@@ -30,27 +32,24 @@ public class StickyApp : ApplicationContext
 
     public StickyApp()
     {
+        notes = new List<NoteForm>();
         dataPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "StickyNotes", "data.json");
         Directory.CreateDirectory(Path.GetDirectoryName(dataPath)!);
 
-        var state = NoteState.Load(dataPath);
-
-        note = new NoteForm(state);
-        note.VisibleChanged += (_, __) => UpdateTrayText();
-        note.FormClosed += (_, __) => ExitThread();
-        note.RequestExit += (_, __) => ExitApp();
-
         menu = new ContextMenuStrip();
         showHideItem = new ToolStripMenuItem("Show");
-        showHideItem.Click += (_, __) => ToggleNote();
+        showHideItem.Click += (_, __) => ToggleNotes();
 
-        topMostItem = new ToolStripMenuItem("Always on top") { Checked = note.TopMost, CheckOnClick = true };
-        topMostItem.CheckedChanged += (_, __) => note.TopMost = topMostItem.Checked;
+        topMostItem = new ToolStripMenuItem("Always on top") { CheckOnClick = true };
+        topMostItem.CheckedChanged += (_, __) => SetAllTopMost(topMostItem.Checked);
+
+        var newNoteItem = new ToolStripMenuItem("New note");
+        newNoteItem.Click += (_, __) => CreateNewNote();
 
         var exitItem = new ToolStripMenuItem("Exit");
         exitItem.Click += (_, __) => ExitApp();
 
-        menu.Items.AddRange(new ToolStripItem[] { showHideItem, topMostItem, new ToolStripSeparator(), exitItem });
+        menu.Items.AddRange(new ToolStripItem[] { showHideItem, topMostItem, new ToolStripSeparator(), newNoteItem, new ToolStripSeparator(), exitItem });
 
         try
         {
@@ -74,36 +73,152 @@ public class StickyApp : ApplicationContext
             ContextMenuStrip = menu,
             Text = "Sticky Notes"
         };
-        tray.DoubleClick += (_, __) => ToggleNote();
+        tray.DoubleClick += (_, __) => ToggleNotes();
 
-        note.Show();
+        var states = NoteStateCollection.Load(dataPath);
+        if (states.Count == 0)
+        {
+            states.Add(new NoteState { Id = Guid.NewGuid().ToString() });
+        }
+
+        foreach (var state in states)
+        {
+            CreateNote(state);
+        }
+
+        UpdateTopMostMenu();
+        UpdateTrayText();
     }
 
-    void ToggleNote()
+    void CreateNote(NoteState state)
     {
-        if (note.Visible)
+        var note = new NoteForm(state, this);
+        note.VisibleChanged += (_, __) => UpdateTrayText();
+        note.FormClosed += (_, __) => RemoveNote(note);
+        note.RequestExit += (_, __) => ExitApp();
+        note.RequestNewNote += (_, __) => CreateNewNote();
+        note.RequestDelete += (_, __) => DeleteNote(note);
+        notes.Add(note);
+        note.Show();
+        UpdateTopMostMenu();
+    }
+
+    void CreateNewNote()
+    {
+        var state = new NoteState
         {
-            note.Hide();
+            Id = Guid.NewGuid().ToString(),
+            X = notes.Count > 0 ? notes[0].Left + 30 : 100,
+            Y = notes.Count > 0 ? notes[0].Top + 30 : 100
+        };
+        CreateNote(state);
+    }
+
+    void RemoveNote(NoteForm note)
+    {
+        note.SaveState();
+        notes.Remove(note);
+        SaveAllStates();
+        UpdateTrayText();
+    }
+
+    void DeleteNote(NoteForm note)
+    {
+        note.SaveState();
+        notes.Remove(note);
+        note.Close();
+        SaveAllStates();
+        UpdateTrayText();
+    }
+
+    void ToggleNotes()
+    {
+        if (notes.Count == 0)
+        {
+            CreateNewNote();
+            return;
         }
-        else
+        var anyVisible = notes.Any(n => n.Visible);
+        foreach (var note in notes)
         {
-            note.Show();
-            note.Activate();
+            if (anyVisible)
+            {
+                note.Hide();
+            }
+            else
+            {
+                note.Show();
+                note.Activate();
+            }
         }
         UpdateTrayText();
     }
 
+    void UpdateTopMostMenu()
+    {
+        if (topMostItem == null || notes.Count == 0) return;
+        topMostItem.Checked = notes[0].TopMost;
+    }
+
+    void SetAllTopMost(bool topMost)
+    {
+        foreach (var note in notes)
+        {
+            note.TopMost = topMost;
+        }
+    }
+
     void UpdateTrayText()
     {
-        showHideItem.Text = note.Visible ? "Hide" : "Show";
-        tray.Text = note.Visible ? "Sticky Notes — Visible" : "Sticky Notes — Hidden";
+        if (showHideItem == null || tray == null) return;
+        var visibleCount = notes.Count(n => n.Visible);
+        showHideItem.Text = visibleCount > 0 ? "Hide all" : "Show all";
+        tray.Text = $"Sticky Notes ({notes.Count})";
     }
 
     void ExitApp()
     {
-        note.SaveState();
+        SaveAllStates();
         tray.Visible = false;
         ExitThread();
+    }
+
+    void SaveAllStates()
+    {
+        var states = notes.Select(n => n.GetState()).ToList();
+        NoteStateCollection.Save(dataPath, states);
+    }
+
+    public void SaveAllStatesRequested()
+    {
+        SaveAllStates();
+    }
+}
+
+class BorderPanel : Panel
+{
+    readonly bool drawAll;
+
+    public BorderPanel(bool drawAll = false)
+    {
+        this.drawAll = drawAll;
+        SetStyle(ControlStyles.ResizeRedraw | ControlStyles.OptimizedDoubleBuffer, true);
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
+        if (drawAll)
+        {
+            using var pen = new Pen(Color.FromArgb(140, 140, 140), 1);
+            e.Graphics.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
+        }
+    }
+
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+        Invalidate();
     }
 }
 
@@ -113,25 +228,43 @@ public class NoteForm : Form
     const int MOD_CONTROL = 0x0002;
     const int WM_HOTKEY = 0x0312;
     const int HOTKEY_ID = 0x7777;
+    const int WM_NCLBUTTONDOWN = 0xA1;
+    const int HT_CAPTION = 0x2;
+    const int CS_DROPSHADOW = 0x00020000;
 
     [DllImport("user32.dll")]
     static extern bool RegisterHotKey(IntPtr hWnd, int id, int fsModifiers, int vk);
     [DllImport("user32.dll")]
     static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+    [DllImport("user32.dll")]
+    static extern int SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
+    [DllImport("user32.dll")]
+    static extern bool ReleaseCapture();
 
     readonly RichTextBox editor;
+    readonly Label addButton;
+    readonly Label closeButton;
+    readonly Label deleteButton;
     readonly System.Windows.Forms.Timer autosaveTimer;
+    readonly System.Windows.Forms.Timer hideToolbarTimer;
     readonly string dataPath;
+    readonly string noteId;
+    readonly StickyApp? app;
     public event EventHandler? RequestExit;
+    public event EventHandler? RequestNewNote;
+    public event EventHandler? RequestDelete;
 
-    public NoteForm(NoteState state)
+    public NoteForm(NoteState state, StickyApp? app = null)
     {
+        this.app = app;
+        noteId = state.Id;
         Text = "Sticky Notes";
         StartPosition = FormStartPosition.Manual;
-        FormBorderStyle = FormBorderStyle.SizableToolWindow;
+        FormBorderStyle = FormBorderStyle.None;
         TopMost = true;
         BackColor = Color.FromArgb(255, 255, 248, 180);
         MinimumSize = new Size(250, 180);
+        SetStyle(ControlStyles.ResizeRedraw | ControlStyles.OptimizedDoubleBuffer, true);
 
         try
         {
@@ -147,6 +280,61 @@ public class NoteForm : Form
             }
         }
         catch (Exception ex) { Console.WriteLine(ex); }
+
+        var toolbar = new Panel
+        {
+            Dock = DockStyle.Top,
+            Height = 0,
+            BackColor = Color.FromArgb(255, 255, 248, 180)
+        };
+        toolbar.MouseDown += NoteForm_MouseDown;
+        toolbar.Resize += (_, __) => UpdateButtonPositions();
+
+        addButton = new Label
+        {
+            Text = "+",
+            Font = new Font("Segoe UI", 14f, FontStyle.Regular),
+            Size = new Size(30, 30),
+            Anchor = AnchorStyles.None,
+            Location = new Point(5, 5),
+            BackColor = Color.FromArgb(255, 255, 248, 180),
+            ForeColor = Color.Black,
+            TextAlign = ContentAlignment.MiddleCenter,
+            AutoSize = false,
+            Cursor = Cursors.Hand
+        };
+        addButton.Click += (_, __) => RequestNewNote?.Invoke(this, EventArgs.Empty);
+        toolbar.Controls.Add(addButton);
+
+        deleteButton = new Label
+        {
+            Text = "×",
+            Font = new Font("Segoe UI", 14f, FontStyle.Regular),
+            Size = new Size(30, 30),
+            Anchor = AnchorStyles.None,
+            BackColor = Color.FromArgb(255, 255, 248, 180),
+            ForeColor = Color.Black,
+            TextAlign = ContentAlignment.MiddleCenter,
+            AutoSize = false,
+            Cursor = Cursors.Hand
+        };
+        deleteButton.Click += (_, __) => RequestDelete?.Invoke(this, EventArgs.Empty);
+        toolbar.Controls.Add(deleteButton);
+
+        closeButton = new Label
+        {
+            Text = "–",
+            Font = new Font("Segoe UI", 14f, FontStyle.Regular),
+            Size = new Size(30, 30),
+            Anchor = AnchorStyles.None,
+            BackColor = Color.FromArgb(255, 255, 248, 180),
+            ForeColor = Color.Black,
+            TextAlign = ContentAlignment.MiddleCenter,
+            AutoSize = false,
+            Cursor = Cursors.Hand
+        };
+        closeButton.Click += (_, __) => Hide();
+        toolbar.Controls.Add(closeButton);
 
         editor = new RichTextBox
         {
@@ -168,7 +356,56 @@ public class NoteForm : Form
         cms.Items.AddRange(new ToolStripItem[] { copy, paste, cut, clear, new ToolStripSeparator(), minimizeToTray, exit });
         editor.ContextMenuStrip = cms;
 
-        Controls.Add(editor);
+        var panel = new Panel
+        {
+            Dock = DockStyle.Fill,
+            Padding = new Padding(10, 50, 10, 10),
+            BackColor = Color.FromArgb(255, 255, 248, 180)
+        };
+        panel.Controls.Add(editor);
+        panel.MouseDown += NoteForm_MouseDown;
+
+        hideToolbarTimer = new System.Windows.Forms.Timer { Interval = 200 };
+        hideToolbarTimer.Tick += (_, __) => 
+        {
+            hideToolbarTimer.Stop();
+            var screenPos = Control.MousePosition;
+            var formPos = PointToClient(screenPos);
+            if (!ClientRectangle.Contains(formPos))
+            {
+                HideToolbar();
+            }
+        };
+
+        var container = new BorderPanel(drawAll: true)
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Color.FromArgb(255, 255, 248, 180),
+            Padding = new Padding(1)
+        };
+        container.Controls.Add(toolbar);
+        container.Controls.Add(panel);
+        container.MouseDown += NoteForm_MouseDown;
+        container.MouseEnter += (_, __) => 
+        {
+            hideToolbarTimer.Stop();
+            ShowToolbar();
+        };
+        container.MouseLeave += (_, __) => hideToolbarTimer.Start();
+        Controls.Add(container);
+        
+        toolbar.MouseEnter += (_, __) => 
+        {
+            hideToolbarTimer.Stop();
+            ShowToolbar();
+        };
+        toolbar.MouseLeave += (_, __) => hideToolbarTimer.Start();
+        panel.MouseEnter += (_, __) => 
+        {
+            hideToolbarTimer.Stop();
+            ShowToolbar();
+        };
+        panel.MouseLeave += (_, __) => hideToolbarTimer.Start();
 
         dataPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "StickyNotes", "data.json");
         LoadState(state);
@@ -176,6 +413,81 @@ public class NoteForm : Form
         autosaveTimer = new System.Windows.Forms.Timer { Interval = 800 }; // debounce
         autosaveTimer.Tick += (_, __) => { autosaveTimer.Stop(); SaveState(); };
         editor.TextChanged += (_, __) => autosaveTimer.Start();
+
+        MouseDown += NoteForm_MouseDown;
+        MouseEnter += (_, __) => 
+        {
+            hideToolbarTimer.Stop();
+            ShowToolbar();
+        };
+        MouseLeave += (_, __) => hideToolbarTimer.Start();
+
+        Resize += (_, __) => UpdateButtonPositions();
+        
+        Load += (_, __) => UpdateButtonPositions();
+        UpdateButtonPositions();
+    }
+
+
+    void UpdateButtonPositions()
+    {
+        var toolbar = closeButton.Parent;
+        if (toolbar != null && toolbar.Width > 0)
+        {
+            const int buttonSize = 30;
+            const int buttonPadding = 5;
+            int buttonTop = (toolbar.Height - buttonSize) / 2;
+            
+            deleteButton.Location = new Point(toolbar.Width - buttonSize - buttonPadding, buttonTop);
+            closeButton.Location = new Point(toolbar.Width - (buttonSize * 2) - (buttonPadding * 2), buttonTop);
+            
+            addButton.Location = new Point(buttonPadding, buttonTop);
+        }
+    }
+
+    void ShowToolbar()
+    {
+        var toolbar = closeButton.Parent;
+        if (toolbar != null && toolbar.Height == 0)
+        {
+            toolbar.Height = 30;
+            UpdateButtonPositions();
+        }
+    }
+
+    void HideToolbar()
+    {
+        var toolbar = closeButton.Parent;
+        if (toolbar != null && toolbar.Height > 0)
+        {
+            toolbar.Height = 0;
+        }
+    }
+
+    void NoteForm_MouseDown(object? sender, MouseEventArgs e)
+    {
+        if (e.Button == MouseButtons.Left)
+        {
+            var control = GetChildAtPoint(e.Location);
+            
+            if (control == addButton || control == closeButton || control == deleteButton || control == editor)
+            {
+                return;
+            }
+            
+            Control? current = control;
+            while (current != null && current != this)
+            {
+                if (current == editor)
+                {
+                    return;
+                }
+                current = current.Parent;
+            }
+            
+            ReleaseCapture();
+            SendMessage(Handle, WM_NCLBUTTONDOWN, HT_CAPTION, 0);
+        }
     }
 
     protected override void OnShown(EventArgs e)
@@ -216,48 +528,70 @@ public class NoteForm : Form
         }
     }
 
-    public void SaveState()
+    public NoteState GetState()
     {
-        var s = new NoteState
+        return new NoteState
         {
+            Id = noteId,
             Text = editor.Text,
             X = Bounds.X,
             Y = Bounds.Y,
             Width = Bounds.Width,
             Height = Bounds.Height
         };
-        NoteState.Save(dataPath, s);
+    }
+
+    public void SaveState()
+    {
+        app?.SaveAllStatesRequested();
+    }
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            var cp = base.CreateParams;
+            cp.ClassStyle |= CS_DROPSHADOW;
+            return cp;
+        }
     }
 }
 
 public class NoteState
 {
+    public string Id { get; set; } = Guid.NewGuid().ToString();
     public string Text { get; set; } = string.Empty;
     public int X { get; set; }
     public int Y { get; set; }
     public int Width { get; set; } = 360;
     public int Height { get; set; } = 320;
+}
 
-    public static NoteState Load(string path)
+public class NoteStateCollection
+{
+    public List<NoteState> Notes { get; set; } = new List<NoteState>();
+
+    public static List<NoteState> Load(string path)
     {
         try
         {
             if (File.Exists(path))
             {
                 var json = File.ReadAllText(path, Encoding.UTF8);
-                var s = JsonSerializer.Deserialize<NoteState>(json);
-                if (s != null) return s;
+                var collection = JsonSerializer.Deserialize<NoteStateCollection>(json);
+                if (collection?.Notes != null && collection.Notes.Count > 0) return collection.Notes;
             }
         }
         catch { }
-        return new NoteState();
+        return new List<NoteState>();
     }
 
-    public static void Save(string path, NoteState state)
+    public static void Save(string path, List<NoteState> states)
     {
         try
         {
-            var json = JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
+            var collection = new NoteStateCollection { Notes = states };
+            var json = JsonSerializer.Serialize(collection, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(path, json, Encoding.UTF8);
         }
         catch { }

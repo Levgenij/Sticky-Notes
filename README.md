@@ -97,7 +97,7 @@ Double-click the icon to show or hide the note.
 
    ```bash
    git clone git@github.com:Levgenij/Sticky-Notes.git
-   cd StickyNote
+   cd StickyNotes
    ```
 2. Build and run:
 
