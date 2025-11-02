@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -72,10 +73,13 @@ public class StickyApp : ApplicationContext
         var newNoteItem = new ToolStripMenuItem("New note");
         newNoteItem.Click += (_, __) => CreateNewNote();
 
+        var aboutItem = new ToolStripMenuItem("About");
+        aboutItem.Click += (_, __) => OpenGitHubPage();
+
         var exitItem = new ToolStripMenuItem("Exit");
         exitItem.Click += (_, __) => ExitApp();
 
-        menu.Items.AddRange(new ToolStripItem[] { showHideItem, topMostItem, hideTaskbarItem, runAtStartupItem, new ToolStripSeparator(), notesMenuItem, newNoteItem, new ToolStripSeparator(), exitItem });
+        menu.Items.AddRange(new ToolStripItem[] { showHideItem, topMostItem, hideTaskbarItem, runAtStartupItem, new ToolStripSeparator(), notesMenuItem, newNoteItem, new ToolStripSeparator(), aboutItem, exitItem });
 
         try
         {
@@ -360,6 +364,19 @@ public class StickyApp : ApplicationContext
             {
                 key.DeleteValue("StickyNotes", false);
             }
+        }
+        catch { }
+    }
+
+    void OpenGitHubPage()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "https://github.com/Levgenij/Sticky-Notes",
+                UseShellExecute = true
+            });
         }
         catch { }
     }
