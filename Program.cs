@@ -292,6 +292,23 @@ class BorderPanel : Panel
     }
 }
 
+class ScrollbarlessRichTextBox : RichTextBox
+{
+    const int SB_VERT = 1;
+
+    [DllImport("user32.dll")]
+    static extern bool ShowScrollBar(IntPtr hWnd, int wBar, bool bShow);
+
+    protected override void WndProc(ref Message m)
+    {
+        base.WndProc(ref m);
+        if (IsHandleCreated)
+        {
+            ShowScrollBar(Handle, SB_VERT, false);
+        }
+    }
+}
+
 public class NoteForm : Form
 {
     const int MOD_ALT = 0x0001;
@@ -311,7 +328,7 @@ public class NoteForm : Form
     [DllImport("user32.dll")]
     static extern bool ReleaseCapture();
 
-    readonly RichTextBox editor;
+    readonly ScrollbarlessRichTextBox editor;
     readonly Label addButton;
     readonly Label closeButton;
     readonly Label deleteButton;
@@ -410,7 +427,7 @@ public class NoteForm : Form
         closeButton.Click += (_, __) => Hide();
         toolbar.Controls.Add(closeButton);
 
-        editor = new RichTextBox
+        editor = new ScrollbarlessRichTextBox
         {
             Dock = DockStyle.Fill,
             BorderStyle = BorderStyle.None,
