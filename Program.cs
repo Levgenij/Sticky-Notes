@@ -465,7 +465,10 @@ public class NoteForm : Form
     readonly Label listButton;
     readonly Label listOrderedButton;
     readonly Label removeFormattingButton;
+    readonly Label clipboardButton;
     readonly Panel formatToolbar;
+    System.Windows.Forms.Timer? clipboardIconTimer;
+    bool isClipboardCheckIcon;
     readonly System.Windows.Forms.Timer autosaveTimer;
     readonly System.Windows.Forms.Timer hideToolbarTimer;
     readonly string dataPath;
@@ -604,6 +607,74 @@ public class NoteForm : Form
 
         listOrderedButton = CreateFormatButton("assests/icons/list-ordered.svg", InsertOrderedList);
         formatToolbar.Controls.Add(listOrderedButton);
+
+        clipboardButton = new Label
+        {
+            Size = new Size(28, 28),
+            Anchor = AnchorStyles.None,
+            BackColor = Color.FromArgb(255, 255, 248, 180),
+            ForeColor = Color.Black,
+            TextAlign = ContentAlignment.MiddleCenter,
+            AutoSize = false,
+            Cursor = Cursors.Hand,
+            ImageAlign = ContentAlignment.MiddleCenter
+        };
+        
+        var clipboardNormalPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "assests/icons/clipboard.svg");
+        var clipboardCheckPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "assests/icons/clipboard-check.svg");
+        
+        try
+        {
+            if (File.Exists(clipboardNormalPath))
+            {
+                var bitmap = LoadSvgAsBitmap(clipboardNormalPath, 20, 20, Color.FromArgb(100, 100, 100));
+                clipboardButton.Image = bitmap;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading clipboard SVG: {ex}");
+        }
+        
+        clipboardButton.Click += (_, __) => CopyToClipboard();
+        clipboardButton.MouseEnter += (_, __) => 
+        {
+            clipboardButton.BackColor = Color.FromArgb(255, 255, 200);
+            try
+            {
+                var currentIconPath = isClipboardCheckIcon ? clipboardCheckPath : clipboardNormalPath;
+                if (File.Exists(currentIconPath))
+                {
+                    var blackBitmap = LoadSvgAsBitmap(currentIconPath, 20, 20, Color.Black);
+                    clipboardButton.Image?.Dispose();
+                    clipboardButton.Image = blackBitmap;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error updating clipboard icon on hover: {ex}");
+            }
+        };
+        clipboardButton.MouseLeave += (_, __) => 
+        {
+            clipboardButton.BackColor = Color.FromArgb(255, 255, 248, 180);
+            try
+            {
+                var currentIconPath = isClipboardCheckIcon ? clipboardCheckPath : clipboardNormalPath;
+                if (File.Exists(currentIconPath))
+                {
+                    var grayBitmap = LoadSvgAsBitmap(currentIconPath, 20, 20, Color.FromArgb(100, 100, 100));
+                    clipboardButton.Image?.Dispose();
+                    clipboardButton.Image = grayBitmap;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error updating clipboard icon on leave: {ex}");
+            }
+        };
+        
+        formatToolbar.Controls.Add(clipboardButton);
 
         formatToolbar.Resize += (_, __) => UpdateFormatButtonPositions();
 
@@ -986,6 +1057,7 @@ public class NoteForm : Form
             removeFormattingButton.Location = new Point(startX + (buttonSize + buttonSpacing) * 4, buttonTop);
             listButton.Location = new Point(startX + (buttonSize + buttonSpacing) * 5, buttonTop);
             listOrderedButton.Location = new Point(startX + (buttonSize + buttonSpacing) * 6, buttonTop);
+            clipboardButton.Location = new Point(startX + (buttonSize + buttonSpacing) * 7, buttonTop);
         }
     }
 
@@ -1127,6 +1199,68 @@ public class NoteForm : Form
             var currentFont = editor.SelectionFont ?? editor.Font;
             var defaultFont = new Font(currentFont.FontFamily, currentFont.Size, FontStyle.Regular);
             editor.SelectionFont = defaultFont;
+        }
+    }
+
+    void CopyToClipboard()
+    {
+        editor.Focus();
+        if (editor.SelectionLength > 0)
+        {
+            editor.Copy();
+        }
+        else
+        {
+            Clipboard.SetText(editor.Text);
+        }
+        
+        SetClipboardIconToCheck();
+        
+        clipboardIconTimer?.Stop();
+        clipboardIconTimer = new System.Windows.Forms.Timer { Interval = 2000 };
+        clipboardIconTimer.Tick += (_, __) => 
+        {
+            clipboardIconTimer.Stop();
+            SetClipboardIconToNormal();
+        };
+        clipboardIconTimer.Start();
+    }
+
+    void SetClipboardIconToCheck()
+    {
+        try
+        {
+            var fullPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "assests/icons/clipboard-check.svg");
+            if (File.Exists(fullPath))
+            {
+                isClipboardCheckIcon = true;
+                var checkBitmap = LoadSvgAsBitmap(fullPath, 20, 20, Color.FromArgb(100, 100, 100));
+                clipboardButton.Image?.Dispose();
+                clipboardButton.Image = checkBitmap;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error setting clipboard check icon: {ex}");
+        }
+    }
+
+    void SetClipboardIconToNormal()
+    {
+        try
+        {
+            var fullPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "assests/icons/clipboard.svg");
+            if (File.Exists(fullPath))
+            {
+                isClipboardCheckIcon = false;
+                var normalBitmap = LoadSvgAsBitmap(fullPath, 20, 20, Color.FromArgb(100, 100, 100));
+                clipboardButton.Image?.Dispose();
+                clipboardButton.Image = normalBitmap;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error setting clipboard normal icon: {ex}");
         }
     }
 
@@ -1305,7 +1439,8 @@ public class NoteForm : Form
             
             if (control == addButton || control == closeButton || control == deleteButton || 
                 control == boldButton || control == italicButton || control == underlineButton || 
-                control == strikethroughButton || control == listButton || control == listOrderedButton || control == removeFormattingButton || control == editor)
+                control == strikethroughButton || control == listButton || control == listOrderedButton || 
+                control == removeFormattingButton || control == clipboardButton || control == editor)
             {
                 return;
             }
