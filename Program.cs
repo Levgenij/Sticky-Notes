@@ -27,6 +27,7 @@ public class StickyApp : ApplicationContext
     readonly ContextMenuStrip menu;
     readonly ToolStripMenuItem showHideItem;
     readonly ToolStripMenuItem topMostItem;
+    readonly ToolStripMenuItem hideTaskbarItem;
     readonly string dataPath;
     readonly Icon? customIcon;
 
@@ -43,13 +44,16 @@ public class StickyApp : ApplicationContext
         topMostItem = new ToolStripMenuItem("Always on top") { CheckOnClick = true };
         topMostItem.CheckedChanged += (_, __) => SetAllTopMost(topMostItem.Checked);
 
+        hideTaskbarItem = new ToolStripMenuItem("Hide taskbar icon") { CheckOnClick = true };
+        hideTaskbarItem.CheckedChanged += (_, __) => SetAllShowInTaskbar(!hideTaskbarItem.Checked);
+
         var newNoteItem = new ToolStripMenuItem("New note");
         newNoteItem.Click += (_, __) => CreateNewNote();
 
         var exitItem = new ToolStripMenuItem("Exit");
         exitItem.Click += (_, __) => ExitApp();
 
-        menu.Items.AddRange(new ToolStripItem[] { showHideItem, topMostItem, new ToolStripSeparator(), newNoteItem, new ToolStripSeparator(), exitItem });
+        menu.Items.AddRange(new ToolStripItem[] { showHideItem, topMostItem, hideTaskbarItem, new ToolStripSeparator(), newNoteItem, new ToolStripSeparator(), exitItem });
 
         try
         {
@@ -99,6 +103,10 @@ public class StickyApp : ApplicationContext
         note.RequestNewNote += (_, __) => CreateNewNote();
         note.RequestDelete += (_, __) => DeleteNote(note);
         notes.Add(note);
+        if (hideTaskbarItem != null)
+        {
+            note.ShowInTaskbar = !hideTaskbarItem.Checked;
+        }
         note.Show();
         UpdateTopMostMenu();
     }
@@ -165,6 +173,14 @@ public class StickyApp : ApplicationContext
         foreach (var note in notes)
         {
             note.TopMost = topMost;
+        }
+    }
+
+    void SetAllShowInTaskbar(bool showInTaskbar)
+    {
+        foreach (var note in notes)
+        {
+            note.ShowInTaskbar = showInTaskbar;
         }
     }
 
