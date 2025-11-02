@@ -8,7 +8,9 @@ using System.Text.Json;
 using System.Text; 
 using System.Windows.Forms;
 using System.Drawing;
+using System.Drawing.Imaging;
 using Microsoft.Win32;
+using Svg;
 
 internal static class Program
 {
@@ -455,6 +457,11 @@ public class NoteForm : Form
     readonly Label addButton;
     readonly Label closeButton;
     readonly Label deleteButton;
+    readonly Label boldButton;
+    readonly Label italicButton;
+    readonly Label underlineButton;
+    readonly Label strikethroughButton;
+    readonly Label listButton;
     readonly System.Windows.Forms.Timer autosaveTimer;
     readonly System.Windows.Forms.Timer hideToolbarTimer;
     readonly string dataPath;
@@ -565,10 +572,35 @@ public class NoteForm : Form
         cms.Items.AddRange(new ToolStripItem[] { copy, paste, cut, clear, new ToolStripSeparator(), minimizeToTray, exit });
         editor.ContextMenuStrip = cms;
 
+        var formatToolbar = new Panel
+        {
+            Dock = DockStyle.Bottom,
+            Height = 30,
+            BackColor = Color.FromArgb(255, 255, 248, 180)
+        };
+        formatToolbar.MouseDown += NoteForm_MouseDown;
+
+        boldButton = CreateFormatButton("assests/icons/bold.svg", ToggleBold);
+        formatToolbar.Controls.Add(boldButton);
+
+        italicButton = CreateFormatButton("assests/icons/italic.svg", ToggleItalic);
+        formatToolbar.Controls.Add(italicButton);
+
+        underlineButton = CreateFormatButton("assests/icons/underline.svg", ToggleUnderline);
+        formatToolbar.Controls.Add(underlineButton);
+
+        strikethroughButton = CreateFormatButton("assests/icons/strikethrough.svg", ToggleStrikethrough);
+        formatToolbar.Controls.Add(strikethroughButton);
+
+        listButton = CreateFormatButton("assests/icons/list.svg", InsertList);
+        formatToolbar.Controls.Add(listButton);
+
+        formatToolbar.Resize += (_, __) => UpdateFormatButtonPositions();
+
         var panel = new Panel
         {
             Dock = DockStyle.Fill,
-            Padding = new Padding(10, 50, 10, 10),
+            Padding = new Padding(10, 50, 10, 50),
             BackColor = Color.FromArgb(255, 255, 248, 180)
         };
         panel.Controls.Add(editor);
@@ -650,6 +682,7 @@ public class NoteForm : Form
         };
 
         container.Controls.Add(toolbar);
+        container.Controls.Add(formatToolbar);
         container.Controls.Add(panel);
         container.MouseDown += NoteForm_MouseDown;
         container.MouseMove += Container_MouseMove;
@@ -702,6 +735,15 @@ public class NoteForm : Form
             }
         };
 
+        formatToolbar.MouseMove += (sender, e) =>
+        {
+            var toolbarControl = sender as Control;
+            if (toolbarControl == null) return;
+            var formPoint = toolbarControl.PointToScreen(e.Location);
+            var clientPoint = PointToClient(formPoint);
+            Cursor = IsInResizeArea(clientPoint) ? Cursors.SizeNWSE : Cursors.Default;
+        };
+
         dataPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "StickyNotes", "data.json");
         LoadState(state);
 
@@ -732,15 +774,18 @@ public class NoteForm : Form
         {
             resizeHandle.Location = new Point(Width - resizeHandle.Width - 1, Height - resizeHandle.Height - 1);
             UpdateButtonPositions();
+            UpdateFormatButtonPositions();
         };
         
         Load += (_, __) => 
         {
             resizeHandle.Location = new Point(Width - resizeHandle.Width - 1, Height - resizeHandle.Height - 1);
             UpdateButtonPositions();
+            UpdateFormatButtonPositions();
         };
         
         UpdateButtonPositions();
+        UpdateFormatButtonPositions();
         resizeHandle.Location = new Point(Width - resizeHandle.Width - 1, Height - resizeHandle.Height - 1);
     }
 
@@ -758,6 +803,242 @@ public class NoteForm : Form
             closeButton.Location = new Point(toolbar.Width - (buttonSize * 2) - (buttonPadding * 2), buttonTop);
             
             addButton.Location = new Point(buttonPadding, buttonTop);
+        }
+    }
+
+    Label CreateFormatButton(string svgPath, Action clickAction)
+    {
+        var button = new Label
+        {
+            Size = new Size(28, 28),
+            Anchor = AnchorStyles.None,
+            BackColor = Color.FromArgb(255, 255, 248, 180),
+            ForeColor = Color.Black,
+            TextAlign = ContentAlignment.MiddleCenter,
+            AutoSize = false,
+            Cursor = Cursors.Hand,
+            ImageAlign = ContentAlignment.MiddleCenter
+        };
+        
+        try
+        {
+            var fullPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, svgPath);
+            if (File.Exists(fullPath))
+            {
+                var bitmap = LoadSvgAsBitmap(fullPath, 20, 20);
+                button.Image = bitmap;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading SVG {svgPath}: {ex}");
+        }
+        
+        button.Click += (_, __) => clickAction();
+        button.MouseEnter += (_, __) => button.BackColor = Color.FromArgb(255, 255, 200);
+        button.MouseLeave += (_, __) => button.BackColor = Color.FromArgb(255, 255, 248, 180);
+        
+        return button;
+    }
+
+    Bitmap LoadSvgAsBitmap(string svgPath, int width, int height)
+    {
+        try
+        {
+            var svgDocument = SvgDocument.Open(svgPath);
+            var scale = 2.0f;
+            var scaledWidth = (int)(width * scale);
+            var scaledHeight = (int)(height * scale);
+            
+            svgDocument.Width = new SvgUnit(scaledWidth);
+            svgDocument.Height = new SvgUnit(scaledHeight);
+            
+            var color = Color.Black;
+            if (svgDocument != null)
+            {
+                SetSvgColor(svgDocument, color);
+            }
+            
+            var bitmap = new Bitmap(scaledWidth, scaledHeight);
+            using (var graphics = Graphics.FromImage(bitmap))
+            {
+                graphics.Clear(Color.Transparent);
+                graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                if (svgDocument != null)
+                {
+                    svgDocument.Draw(graphics);
+                }
+            }
+            
+            var resized = new Bitmap(width, height);
+            using (var graphics = Graphics.FromImage(resized))
+            {
+                graphics.Clear(Color.Transparent);
+                graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                graphics.DrawImage(bitmap, 0, 0, width, height);
+            }
+            
+            bitmap.Dispose();
+            return resized;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading SVG: {ex}");
+            return new Bitmap(width, height);
+        }
+    }
+
+    void SetSvgColor(SvgDocument document, Color color)
+    {
+        try
+        {
+            foreach (var element in document.Descendants().OfType<SvgElement>())
+            {
+                var fillStr = element.Fill?.ToString() ?? "";
+                var strokeStr = element.Stroke?.ToString() ?? "";
+                
+                if (fillStr.Contains("none") || fillStr.Contains("transparent") || element.Fill == null)
+                {
+                    if (strokeStr.Contains("currentColor") || strokeStr.Contains("none") || element.Stroke == null)
+                    {
+                        element.Stroke = new SvgColourServer(color);
+                    }
+                }
+                else if (fillStr.Contains("currentColor"))
+                {
+                    element.Fill = new SvgColourServer(color);
+                }
+                
+                if (strokeStr.Contains("currentColor"))
+                {
+                    element.Stroke = new SvgColourServer(color);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error setting SVG color: {ex}");
+        }
+    }
+
+    void UpdateFormatButtonPositions()
+    {
+        var toolbar = boldButton.Parent;
+        if (toolbar != null && toolbar.Width > 0)
+        {
+            const int buttonSize = 28;
+            const int buttonSpacing = 5;
+            int startX = 10;
+            int buttonTop = (toolbar.Height - buttonSize) / 2;
+            
+            boldButton.Location = new Point(startX, buttonTop);
+            italicButton.Location = new Point(startX + buttonSize + buttonSpacing, buttonTop);
+            underlineButton.Location = new Point(startX + (buttonSize + buttonSpacing) * 2, buttonTop);
+            strikethroughButton.Location = new Point(startX + (buttonSize + buttonSpacing) * 3, buttonTop);
+            listButton.Location = new Point(startX + (buttonSize + buttonSpacing) * 4, buttonTop);
+        }
+    }
+
+    void ToggleBold()
+    {
+        editor.Focus();
+        if (editor.SelectionLength > 0)
+        {
+            var currentFont = editor.SelectionFont ?? editor.Font;
+            var newStyle = currentFont.Style;
+            if (currentFont.Bold)
+            {
+                newStyle &= ~FontStyle.Bold;
+            }
+            else
+            {
+                newStyle |= FontStyle.Bold;
+            }
+            editor.SelectionFont = new Font(currentFont.FontFamily, currentFont.Size, newStyle);
+        }
+    }
+
+    void ToggleItalic()
+    {
+        editor.Focus();
+        if (editor.SelectionLength > 0)
+        {
+            var currentFont = editor.SelectionFont ?? editor.Font;
+            var newStyle = currentFont.Style;
+            if (currentFont.Italic)
+            {
+                newStyle &= ~FontStyle.Italic;
+            }
+            else
+            {
+                newStyle |= FontStyle.Italic;
+            }
+            editor.SelectionFont = new Font(currentFont.FontFamily, currentFont.Size, newStyle);
+        }
+    }
+
+    void ToggleUnderline()
+    {
+        editor.Focus();
+        if (editor.SelectionLength > 0)
+        {
+            var currentFont = editor.SelectionFont ?? editor.Font;
+            var newStyle = currentFont.Style;
+            if (currentFont.Underline)
+            {
+                newStyle &= ~FontStyle.Underline;
+            }
+            else
+            {
+                newStyle |= FontStyle.Underline;
+            }
+            editor.SelectionFont = new Font(currentFont.FontFamily, currentFont.Size, newStyle);
+        }
+    }
+
+    void ToggleStrikethrough()
+    {
+        editor.Focus();
+        if (editor.SelectionLength > 0)
+        {
+            var currentFont = editor.SelectionFont ?? editor.Font;
+            var newStyle = currentFont.Style;
+            if (currentFont.Strikeout)
+            {
+                newStyle &= ~FontStyle.Strikeout;
+            }
+            else
+            {
+                newStyle |= FontStyle.Strikeout;
+            }
+            editor.SelectionFont = new Font(currentFont.FontFamily, currentFont.Size, newStyle);
+        }
+    }
+
+    void InsertList()
+    {
+        editor.Focus();
+        var selectionStart = editor.SelectionStart;
+        var selectionLength = editor.SelectionLength;
+        
+        if (selectionLength > 0)
+        {
+            var selectedText = editor.SelectedText;
+            var lines = selectedText.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+            var listText = string.Join("\r\n", lines.Select(line => string.IsNullOrWhiteSpace(line) ? "" : "• " + line.Trim()));
+            
+            editor.SelectedText = listText;
+            editor.SelectionStart = selectionStart;
+            editor.SelectionLength = listText.Length;
+        }
+        else
+        {
+            editor.SelectedText = "• ";
+            editor.SelectionStart = editor.SelectionStart + 2;
         }
     }
 
@@ -871,7 +1152,9 @@ public class NoteForm : Form
             
             var control = GetChildAtPoint(e.Location);
             
-            if (control == addButton || control == closeButton || control == deleteButton || control == editor)
+            if (control == addButton || control == closeButton || control == deleteButton || 
+                control == boldButton || control == italicButton || control == underlineButton || 
+                control == strikethroughButton || control == listButton || control == editor)
             {
                 return;
             }
