@@ -250,6 +250,9 @@ public class NoteForm : Form
     readonly string dataPath;
     readonly string noteId;
     readonly StickyApp? app;
+    bool isResizing;
+    Point resizeStartPos;
+    Size resizeStartSize;
     public event EventHandler? RequestExit;
     public event EventHandler? RequestNewNote;
     public event EventHandler? RequestDelete;
@@ -383,16 +386,83 @@ public class NoteForm : Form
             BackColor = Color.FromArgb(255, 255, 248, 180),
             Padding = new Padding(1)
         };
+        var resizeHandle = new Panel
+        {
+            Size = new Size(30, 30),
+            BackColor = Color.Transparent,
+            Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
+            Cursor = Cursors.SizeNWSE
+        };
+        resizeHandle.MouseDown += (sender, e) =>
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                isResizing = true;
+                var handle = sender as Control;
+                if (handle != null)
+                {
+                    resizeStartPos = handle.PointToScreen(e.Location);
+                }
+                else
+                {
+                    resizeStartPos = PointToScreen(e.Location);
+                }
+                resizeStartSize = Size;
+            }
+        };
+        resizeHandle.MouseMove += (sender, e) =>
+        {
+            if (isResizing && e.Button == MouseButtons.Left)
+            {
+                var handle = sender as Control;
+                Point screenPos;
+                if (handle != null)
+                {
+                    screenPos = handle.PointToScreen(e.Location);
+                }
+                else
+                {
+                    screenPos = PointToScreen(e.Location);
+                }
+                var deltaX = screenPos.X - resizeStartPos.X;
+                var deltaY = screenPos.Y - resizeStartPos.Y;
+                var newWidth = resizeStartSize.Width + deltaX;
+                var newHeight = resizeStartSize.Height + deltaY;
+                
+                if (newWidth < MinimumSize.Width) newWidth = MinimumSize.Width;
+                if (newHeight < MinimumSize.Height) newHeight = MinimumSize.Height;
+                
+                Size = new Size(newWidth, newHeight);
+            }
+        };
+        resizeHandle.MouseUp += (sender, e) =>
+        {
+            if (e.Button == MouseButtons.Left && isResizing)
+            {
+                isResizing = false;
+            }
+        };
+
         container.Controls.Add(toolbar);
         container.Controls.Add(panel);
         container.MouseDown += NoteForm_MouseDown;
+        container.MouseMove += Container_MouseMove;
         container.MouseEnter += (_, __) => 
         {
             hideToolbarTimer.Stop();
             ShowToolbar();
         };
-        container.MouseLeave += (_, __) => hideToolbarTimer.Start();
+        container.MouseLeave += (_, __) => 
+        {
+            hideToolbarTimer.Start();
+            Cursor = Cursors.Default;
+        };
         Controls.Add(container);
+        Controls.Add(resizeHandle);
+        resizeHandle.BringToFront();
+        
+        MouseMove += NoteForm_MouseMove;
+        MouseUp += NoteForm_MouseUp;
         
         toolbar.MouseEnter += (_, __) => 
         {
@@ -400,12 +470,31 @@ public class NoteForm : Form
             ShowToolbar();
         };
         toolbar.MouseLeave += (_, __) => hideToolbarTimer.Start();
+        toolbar.MouseMove += (sender, e) =>
+        {
+            var toolbarControl = sender as Control;
+            if (toolbarControl == null) return;
+            var formPoint = toolbarControl.PointToScreen(e.Location);
+            var clientPoint = PointToClient(formPoint);
+            Cursor = IsInResizeArea(clientPoint) ? Cursors.SizeNWSE : Cursors.Default;
+        };
         panel.MouseEnter += (_, __) => 
         {
             hideToolbarTimer.Stop();
             ShowToolbar();
         };
         panel.MouseLeave += (_, __) => hideToolbarTimer.Start();
+        panel.MouseMove += (sender, e) =>
+        {
+            var panelControl = sender as Control;
+            if (panelControl == null) return;
+            var formPoint = panelControl.PointToScreen(e.Location);
+            var clientPoint = PointToClient(formPoint);
+            if (!isResizing)
+            {
+                Cursor = IsInResizeArea(clientPoint) ? Cursors.SizeNWSE : Cursors.Default;
+            }
+        };
 
         dataPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "StickyNotes", "data.json");
         LoadState(state);
@@ -420,12 +509,29 @@ public class NoteForm : Form
             hideToolbarTimer.Stop();
             ShowToolbar();
         };
-        MouseLeave += (_, __) => hideToolbarTimer.Start();
+        MouseLeave += (_, __) => 
+        {
+            hideToolbarTimer.Start();
+            if (!isResizing)
+            {
+                Cursor = Cursors.Default;
+            }
+        };
 
-        Resize += (_, __) => UpdateButtonPositions();
+        Resize += (_, __) => 
+        {
+            resizeHandle.Location = new Point(Width - resizeHandle.Width - 1, Height - resizeHandle.Height - 1);
+            UpdateButtonPositions();
+        };
         
-        Load += (_, __) => UpdateButtonPositions();
+        Load += (_, __) => 
+        {
+            resizeHandle.Location = new Point(Width - resizeHandle.Width - 1, Height - resizeHandle.Height - 1);
+            UpdateButtonPositions();
+        };
+        
         UpdateButtonPositions();
+        resizeHandle.Location = new Point(Width - resizeHandle.Width - 1, Height - resizeHandle.Height - 1);
     }
 
 
@@ -464,10 +570,95 @@ public class NoteForm : Form
         }
     }
 
+    bool IsInResizeArea(Point point)
+    {
+        const int resizeAreaSize = 30;
+        return point.X >= Width - resizeAreaSize && point.Y >= Height - resizeAreaSize;
+    }
+
+    void Container_MouseMove(object? sender, MouseEventArgs e)
+    {
+        var container = sender as Control;
+        if (container == null) return;
+        
+        var formPoint = container.PointToScreen(e.Location);
+        var clientPoint = PointToClient(formPoint);
+        
+        if (IsInResizeArea(clientPoint))
+        {
+            Cursor = Cursors.SizeNWSE;
+            if (e.Button == MouseButtons.Left && !isResizing)
+            {
+                isResizing = true;
+                resizeStartPos = formPoint;
+                resizeStartSize = Size;
+            }
+        }
+        else if (!isResizing)
+        {
+            Cursor = Cursors.Default;
+        }
+        
+        if (isResizing && e.Button == MouseButtons.Left)
+        {
+            var deltaX = formPoint.X - resizeStartPos.X;
+            var deltaY = formPoint.Y - resizeStartPos.Y;
+            var newWidth = resizeStartSize.Width + deltaX;
+            var newHeight = resizeStartSize.Height + deltaY;
+            
+            if (newWidth < MinimumSize.Width) newWidth = MinimumSize.Width;
+            if (newHeight < MinimumSize.Height) newHeight = MinimumSize.Height;
+            
+            Size = new Size(newWidth, newHeight);
+        }
+    }
+
+    void NoteForm_MouseMove(object? sender, MouseEventArgs e)
+    {
+        if (isResizing)
+        {
+            var screenPos = PointToScreen(e.Location);
+            var deltaX = screenPos.X - resizeStartPos.X;
+            var deltaY = screenPos.Y - resizeStartPos.Y;
+            var newWidth = resizeStartSize.Width + deltaX;
+            var newHeight = resizeStartSize.Height + deltaY;
+            
+            if (newWidth < MinimumSize.Width) newWidth = MinimumSize.Width;
+            if (newHeight < MinimumSize.Height) newHeight = MinimumSize.Height;
+            
+            Size = new Size(newWidth, newHeight);
+        }
+        else if (IsInResizeArea(e.Location))
+        {
+            Cursor = Cursors.SizeNWSE;
+        }
+        else
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
+    void NoteForm_MouseUp(object? sender, MouseEventArgs e)
+    {
+        if (e.Button == MouseButtons.Left && isResizing)
+        {
+            isResizing = false;
+            Cursor = Cursors.Default;
+        }
+    }
+
     void NoteForm_MouseDown(object? sender, MouseEventArgs e)
     {
         if (e.Button == MouseButtons.Left)
         {
+            if (IsInResizeArea(e.Location))
+            {
+                isResizing = true;
+                resizeStartPos = PointToScreen(e.Location);
+                resizeStartSize = Size;
+                return;
+            }
+            
             var control = GetChildAtPoint(e.Location);
             
             if (control == addButton || control == closeButton || control == deleteButton || control == editor)
