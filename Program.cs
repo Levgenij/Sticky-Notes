@@ -467,6 +467,7 @@ public class NoteForm : Form
     readonly Label removeFormattingButton;
     readonly Label clipboardButton;
     readonly Panel formatToolbar;
+    readonly Label resizeIcon;
     System.Windows.Forms.Timer? clipboardIconTimer;
     bool isClipboardCheckIcon;
     readonly System.Windows.Forms.Timer autosaveTimer;
@@ -707,11 +708,50 @@ public class NoteForm : Form
         };
         var resizeHandle = new Panel
         {
+            Name = "resizeHandle",
             Size = new Size(30, 30),
             BackColor = Color.Transparent,
             Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
             Cursor = Cursors.SizeNWSE
         };
+        
+        resizeIcon = new Label
+        {
+            Name = "resizeIcon",
+            Size = new Size(30, 30),
+            Dock = DockStyle.Fill,
+            BackColor = Color.Transparent,
+            ImageAlign = ContentAlignment.MiddleCenter,
+            Cursor = Cursors.SizeNWSE,
+            Visible = false
+        };
+        
+        try
+        {
+            var iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "assests/icons/arrow-down-right.svg");
+            if (File.Exists(iconPath))
+            {
+                var iconBitmap = LoadSvgAsBitmap(iconPath, 20, 20, Color.FromArgb(180, 180, 180));
+                resizeIcon.Image = iconBitmap;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading resize icon: {ex}");
+        }
+        
+        resizeHandle.Controls.Add(resizeIcon);
+        
+        resizeIcon.MouseDown += (sender, e) =>
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                isResizing = true;
+                resizeStartPos = resizeHandle.PointToScreen(e.Location);
+                resizeStartSize = Size;
+            }
+        };
+        
         resizeHandle.MouseDown += (sender, e) =>
         {
             if (e.Button == MouseButtons.Left)
@@ -729,6 +769,23 @@ public class NoteForm : Form
                 resizeStartSize = Size;
             }
         };
+        resizeIcon.MouseMove += (sender, e) =>
+        {
+            if (isResizing && e.Button == MouseButtons.Left)
+            {
+                var screenPos = resizeHandle.PointToScreen(e.Location);
+                var deltaX = screenPos.X - resizeStartPos.X;
+                var deltaY = screenPos.Y - resizeStartPos.Y;
+                var newWidth = resizeStartSize.Width + deltaX;
+                var newHeight = resizeStartSize.Height + deltaY;
+                
+                if (newWidth < MinimumSize.Width) newWidth = MinimumSize.Width;
+                if (newHeight < MinimumSize.Height) newHeight = MinimumSize.Height;
+                
+                Size = new Size(newWidth, newHeight);
+            }
+        };
+        
         resizeHandle.MouseMove += (sender, e) =>
         {
             if (isResizing && e.Button == MouseButtons.Left)
@@ -754,6 +811,14 @@ public class NoteForm : Form
                 Size = new Size(newWidth, newHeight);
             }
         };
+        resizeIcon.MouseUp += (sender, e) =>
+        {
+            if (e.Button == MouseButtons.Left && isResizing)
+            {
+                isResizing = false;
+            }
+        };
+        
         resizeHandle.MouseUp += (sender, e) =>
         {
             if (e.Button == MouseButtons.Left && isResizing)
@@ -1330,6 +1395,11 @@ public class NoteForm : Form
             formatToolbar.Height = 30;
             UpdateFormatButtonPositions();
         }
+        
+        if (resizeIcon != null && !resizeIcon.Visible)
+        {
+            resizeIcon.Visible = true;
+        }
     }
 
     void HideToolbar()
@@ -1343,6 +1413,11 @@ public class NoteForm : Form
         if (formatToolbar != null && formatToolbar.Height > 0)
         {
             formatToolbar.Height = 0;
+        }
+        
+        if (resizeIcon != null && resizeIcon.Visible)
+        {
+            resizeIcon.Visible = false;
         }
     }
 
@@ -1448,7 +1523,7 @@ public class NoteForm : Form
             Control? current = control;
             while (current != null && current != this)
             {
-                if (current == editor)
+                if (current == editor || current.Name == "resizeHandle" || (current is Label && current.Parent != null && current.Parent.Name == "resizeHandle"))
                 {
                     return;
                 }
