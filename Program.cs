@@ -31,6 +31,7 @@ public class StickyApp : ApplicationContext
     readonly ToolStripMenuItem notesMenuItem = null!;
     readonly string dataPath;
     readonly Icon? customIcon;
+    NoteForm? lastActiveNote;
 
     public StickyApp()
     {
@@ -142,9 +143,12 @@ public class StickyApp : ApplicationContext
         };
         note.FormClosed += (_, __) => RemoveNote(note);
         note.RequestExit += (_, __) => ExitApp();
-        note.RequestNewNote += (_, __) => CreateNewNote();
+        note.RequestNewNote += (sender, __) => CreateNewNote(sender as NoteForm);
         note.RequestDelete += (_, __) => DeleteNote(note);
         note.NoteTextChanged += (_, __) => UpdateNotesMenu();
+        note.Activated += (_, __) => lastActiveNote = note;
+        note.GotFocus += (_, __) => lastActiveNote = note;
+        note.MouseDown += (_, __) => lastActiveNote = note;
         notes.Add(note);
         if (hideTaskbarItem != null)
         {
@@ -155,13 +159,14 @@ public class StickyApp : ApplicationContext
         UpdateNotesMenu();
     }
 
-    void CreateNewNote()
+    void CreateNewNote(NoteForm? sourceNote = null)
     {
+        NoteForm? referenceNote = sourceNote ?? lastActiveNote ?? notes.Where(n => n.Visible).LastOrDefault();
         var state = new NoteState
         {
             Id = Guid.NewGuid().ToString(),
-            X = notes.Count > 0 ? notes[0].Left + 30 : 100,
-            Y = notes.Count > 0 ? notes[0].Top + 30 : 100
+            X = referenceNote != null ? referenceNote.Left + 30 : 100,
+            Y = referenceNote != null ? referenceNote.Top + 30 : 100
         };
         CreateNote(state);
     }
