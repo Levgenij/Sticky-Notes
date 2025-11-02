@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Text; 
 using System.Windows.Forms;
 using System.Drawing;
+using Microsoft.Win32;
 
 internal static class Program
 {
@@ -28,6 +29,7 @@ public class StickyApp : ApplicationContext
     readonly ToolStripMenuItem showHideItem = null!;
     readonly ToolStripMenuItem topMostItem = null!;
     readonly ToolStripMenuItem hideTaskbarItem = null!;
+    readonly ToolStripMenuItem runAtStartupItem = null!;
     readonly ToolStripMenuItem notesMenuItem = null!;
     readonly string dataPath;
     readonly Icon? customIcon;
@@ -57,6 +59,13 @@ public class StickyApp : ApplicationContext
             SaveSettings();
         };
 
+        runAtStartupItem = new ToolStripMenuItem("Run at Windows startup") { CheckOnClick = true };
+        runAtStartupItem.CheckedChanged += (_, __) => 
+        { 
+            SetRunAtStartup(runAtStartupItem.Checked);
+            SaveSettings();
+        };
+
         notesMenuItem = new ToolStripMenuItem("Notes");
         notesMenuItem.DropDownItems.Clear();
 
@@ -66,7 +75,7 @@ public class StickyApp : ApplicationContext
         var exitItem = new ToolStripMenuItem("Exit");
         exitItem.Click += (_, __) => ExitApp();
 
-        menu.Items.AddRange(new ToolStripItem[] { showHideItem, topMostItem, hideTaskbarItem, new ToolStripSeparator(), notesMenuItem, newNoteItem, new ToolStripSeparator(), exitItem });
+        menu.Items.AddRange(new ToolStripItem[] { showHideItem, topMostItem, hideTaskbarItem, runAtStartupItem, new ToolStripSeparator(), notesMenuItem, newNoteItem, new ToolStripSeparator(), exitItem });
 
         try
         {
@@ -108,6 +117,15 @@ public class StickyApp : ApplicationContext
             if (topMostItem != null)
             {
                 topMostItem.Checked = collection.Settings.TopMost;
+            }
+            if (runAtStartupItem != null)
+            {
+                var isCurrentlyEnabled = IsRunAtStartupEnabled();
+                runAtStartupItem.Checked = collection.Settings.RunAtStartup ?? isCurrentlyEnabled;
+                if (runAtStartupItem.Checked != isCurrentlyEnabled)
+                {
+                    SetRunAtStartup(runAtStartupItem.Checked);
+                }
             }
         }
 
@@ -306,8 +324,44 @@ public class StickyApp : ApplicationContext
         return new AppSettings
         {
             HideTaskbarIcon = hideTaskbarItem?.Checked ?? false,
-            TopMost = topMostItem?.Checked ?? false
+            TopMost = topMostItem?.Checked ?? false,
+            RunAtStartup = runAtStartupItem?.Checked ?? false
         };
+    }
+
+    bool IsRunAtStartupEnabled()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", false);
+            if (key == null) return false;
+            var value = key.GetValue("StickyNotes");
+            return value != null;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    void SetRunAtStartup(bool enable)
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true);
+            if (key == null) return;
+
+            if (enable)
+            {
+                var exePath = Application.ExecutablePath;
+                key.SetValue("StickyNotes", $"\"{exePath}\"");
+            }
+            else
+            {
+                key.DeleteValue("StickyNotes", false);
+            }
+        }
+        catch { }
     }
 
     void SaveSettings()
@@ -916,6 +970,7 @@ public class AppSettings
 {
     public bool HideTaskbarIcon { get; set; }
     public bool TopMost { get; set; }
+    public bool? RunAtStartup { get; set; }
 }
 
 public class NoteStateCollection
