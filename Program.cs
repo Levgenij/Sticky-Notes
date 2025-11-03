@@ -502,7 +502,14 @@ class ScrollbarlessRichTextBox : RichTextBox
 
     protected override void WndProc(ref Message m)
     {
-        base.WndProc(ref m);
+        try
+        {
+            base.WndProc(ref m);
+        }
+        catch (System.Globalization.CultureNotFoundException)
+        {
+        }
+        
         if (IsHandleCreated)
         {
             ShowScrollBar(Handle, SB_VERT, false);
