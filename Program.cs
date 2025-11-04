@@ -1530,7 +1530,10 @@ public class NoteForm : Form
     {
         if (e.KeyCode == Keys.Back || e.KeyCode == Keys.Delete)
         {
-            HandleDeleteKey(e.KeyCode);
+            if (HandleDeleteKey(e.KeyCode))
+            {
+                e.Handled = true;
+            }
             return;
         }
         
@@ -1645,13 +1648,13 @@ public class NoteForm : Form
         }
     }
 
-    void HandleDeleteKey(Keys key)
+    bool HandleDeleteKey(Keys key)
     {
         var cursorPos = editor.SelectionStart;
         var selectionLength = editor.SelectionLength;
         var text = editor.Text;
         
-        if (cursorPos < 0 || cursorPos > text.Length) return;
+        if (cursorPos < 0 || cursorPos > text.Length) return false;
         
         int lineToCheck = -1;
         int lineStartPos = -1;
@@ -1670,7 +1673,7 @@ public class NoteForm : Form
                 return Regex.IsMatch(trimmed, @"^\d+\. ");
             });
             
-            if (!hasNumbering) return;
+            if (!hasNumbering) return false;
             
             // Find the first line that will remain after deletion
             var startLineIndex = editor.GetLineFromCharIndex(cursorPos);
@@ -1724,7 +1727,7 @@ public class NoteForm : Form
                 }
             }
             
-            if (lineToCheck < 0 || lineStartPos < 0) return;
+            if (lineToCheck < 0 || lineStartPos < 0) return false;
             
             // Check if the line that will be affected has numbering
             var lineEnd = lineStartPos;
@@ -1739,12 +1742,9 @@ public class NoteForm : Form
             if (!Regex.IsMatch(trimmed, @"^\d+\. "))
             {
                 // Line doesn't have numbering, let default handler work
-                return;
+                return false;
             }
         }
-        
-        // Save cursor position before deletion
-        var cursorBeforeDelete = cursorPos;
         
         // Perform deletion using default behavior
         if (key == Keys.Back)
@@ -1785,6 +1785,8 @@ public class NoteForm : Form
         var newCursorPos = editor.SelectionStart;
         var newLineIndex = editor.GetLineFromCharIndex(newCursorPos);
         UpdateNumberingAfterDelete(newLineIndex);
+        
+        return true;
     }
 
     void UpdateNumberingAfterDelete(int startLineIndex)
