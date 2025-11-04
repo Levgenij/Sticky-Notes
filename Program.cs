@@ -1266,7 +1266,42 @@ public class NoteForm : Form
         {
             var selectedText = editor.SelectedText;
             var lines = selectedText.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
-            var listText = string.Join("\r\n", lines.Select(line => string.IsNullOrWhiteSpace(line) ? "" : "• " + line.Trim()));
+            
+            // Check if all non-empty lines already have bullet markers
+            bool hasBullets = lines.All(line => 
+            {
+                if (string.IsNullOrWhiteSpace(line)) return true;
+                var trimmed = line.TrimStart();
+                return trimmed.StartsWith("• ");
+            });
+            
+            var listText = string.Join("\r\n", lines.Select(line => 
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    return "";
+                }
+                
+                if (hasBullets)
+                {
+                    // Remove bullet marker
+                    var trimmed = line.TrimStart();
+                    if (trimmed.StartsWith("• "))
+                    {
+                        var indent = line.Length - line.TrimStart().Length;
+                        var indentStr = indent > 0 ? line.Substring(0, indent) : "";
+                        return indentStr + trimmed.Substring(2);
+                    }
+                    return line;
+                }
+                else
+                {
+                    // Add bullet marker
+                    var indent = line.Length - line.TrimStart().Length;
+                    var indentStr = indent > 0 ? line.Substring(0, indent) : "";
+                    return indentStr + "• " + line.Trim();
+                }
+            }));
             
             editor.SelectedText = listText;
             editor.SelectionStart = selectionStart;
@@ -1274,8 +1309,51 @@ public class NoteForm : Form
         }
         else
         {
-            editor.SelectedText = "• ";
-            editor.SelectionStart = editor.SelectionStart + 2;
+            var cursorPos = editor.SelectionStart;
+            var text = editor.Text;
+            
+            if (cursorPos < 0 || cursorPos > text.Length) return;
+            
+            var lineIndex = editor.GetLineFromCharIndex(cursorPos);
+            var lineStart = editor.GetFirstCharIndexFromLine(lineIndex);
+            if (lineStart < 0) return;
+            
+            var lineEnd = lineStart;
+            while (lineEnd < text.Length && text[lineEnd] != '\n' && text[lineEnd] != '\r')
+            {
+                lineEnd++;
+            }
+            
+            if (lineStart >= text.Length) return;
+            
+            var lineLength = lineEnd - lineStart;
+            var currentLine = text.Substring(lineStart, lineLength);
+            var trimmedLine = currentLine.TrimStart();
+            
+            if (trimmedLine.StartsWith("• "))
+            {
+                // Remove bullet marker
+                var indent = currentLine.Length - currentLine.TrimStart().Length;
+                var indentStr = indent > 0 ? currentLine.Substring(0, indent) : "";
+                var newLine = indentStr + trimmedLine.Substring(2);
+                
+                editor.SelectionStart = lineStart;
+                editor.SelectionLength = lineLength;
+                editor.SelectedText = newLine;
+                editor.SelectionStart = lineStart + indentStr.Length;
+            }
+            else
+            {
+                // Add bullet marker
+                var indent = currentLine.Length - currentLine.TrimStart().Length;
+                var indentStr = indent > 0 ? currentLine.Substring(0, indent) : "";
+                var newLine = indentStr + "• " + currentLine.TrimStart();
+                
+                editor.SelectionStart = lineStart;
+                editor.SelectionLength = lineLength;
+                editor.SelectedText = newLine;
+                editor.SelectionStart = lineStart + indentStr.Length + 2;
+            }
         }
     }
 
@@ -1289,6 +1367,15 @@ public class NoteForm : Form
         {
             var selectedText = editor.SelectedText;
             var lines = selectedText.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+            
+            // Check if all non-empty lines already have numbering
+            bool hasNumbering = lines.All(line => 
+            {
+                if (string.IsNullOrWhiteSpace(line)) return true;
+                var trimmed = line.TrimStart();
+                return Regex.IsMatch(trimmed, @"^\d+\. ");
+            });
+            
             int lineNumber = 1;
             var listText = string.Join("\r\n", lines.Select(line => 
             {
@@ -1296,7 +1383,27 @@ public class NoteForm : Form
                 {
                     return "";
                 }
-                return $"{lineNumber++}. {line.Trim()}";
+                
+                if (hasNumbering)
+                {
+                    // Remove numbering
+                    var trimmed = line.TrimStart();
+                    var match = Regex.Match(trimmed, @"^(\d+)\. ");
+                    if (match.Success)
+                    {
+                        var indent = line.Length - line.TrimStart().Length;
+                        var indentStr = indent > 0 ? line.Substring(0, indent) : "";
+                        return indentStr + trimmed.Substring(match.Length);
+                    }
+                    return line;
+                }
+                else
+                {
+                    // Add numbering
+                    var indent = line.Length - line.TrimStart().Length;
+                    var indentStr = indent > 0 ? line.Substring(0, indent) : "";
+                    return indentStr + $"{lineNumber++}. " + line.Trim();
+                }
             }));
             
             editor.SelectedText = listText;
@@ -1305,8 +1412,52 @@ public class NoteForm : Form
         }
         else
         {
-            editor.SelectedText = "1. ";
-            editor.SelectionStart = editor.SelectionStart + 3;
+            var cursorPos = editor.SelectionStart;
+            var text = editor.Text;
+            
+            if (cursorPos < 0 || cursorPos > text.Length) return;
+            
+            var lineIndex = editor.GetLineFromCharIndex(cursorPos);
+            var lineStart = editor.GetFirstCharIndexFromLine(lineIndex);
+            if (lineStart < 0) return;
+            
+            var lineEnd = lineStart;
+            while (lineEnd < text.Length && text[lineEnd] != '\n' && text[lineEnd] != '\r')
+            {
+                lineEnd++;
+            }
+            
+            if (lineStart >= text.Length) return;
+            
+            var lineLength = lineEnd - lineStart;
+            var currentLine = text.Substring(lineStart, lineLength);
+            var trimmedLine = currentLine.TrimStart();
+            
+            var numberedMatch = Regex.Match(trimmedLine, @"^(\d+)\. ");
+            if (numberedMatch.Success)
+            {
+                // Remove numbering
+                var indent = currentLine.Length - currentLine.TrimStart().Length;
+                var indentStr = indent > 0 ? currentLine.Substring(0, indent) : "";
+                var newLine = indentStr + trimmedLine.Substring(numberedMatch.Length);
+                
+                editor.SelectionStart = lineStart;
+                editor.SelectionLength = lineLength;
+                editor.SelectedText = newLine;
+                editor.SelectionStart = lineStart + indentStr.Length;
+            }
+            else
+            {
+                // Add numbering
+                var indent = currentLine.Length - currentLine.TrimStart().Length;
+                var indentStr = indent > 0 ? currentLine.Substring(0, indent) : "";
+                var newLine = indentStr + "1. " + currentLine.TrimStart();
+                
+                editor.SelectionStart = lineStart;
+                editor.SelectionLength = lineLength;
+                editor.SelectedText = newLine;
+                editor.SelectionStart = lineStart + indentStr.Length + 3;
+            }
         }
     }
 
