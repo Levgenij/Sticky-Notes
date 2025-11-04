@@ -126,7 +126,9 @@ public class StickyApp : ApplicationContext
         var newNoteItem = new ToolStripMenuItem("New note");
         newNoteItem.Click += (_, __) => CreateNewNote();
 
-        var aboutItem = new ToolStripMenuItem("About");
+        var version = Assembly.GetExecutingAssembly().GetName().Version;
+        var versionString = version != null ? $" (v{version.Major}.{version.Minor}.{version.Build})" : "";
+        var aboutItem = new ToolStripMenuItem($"About{versionString}");
         aboutItem.Click += (_, __) => OpenGitHubPage();
 
         var exitItem = new ToolStripMenuItem("Exit");
