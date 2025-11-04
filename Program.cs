@@ -1528,6 +1528,12 @@ public class NoteForm : Form
 
     void Editor_KeyDown(object? sender, KeyEventArgs e)
     {
+        if (e.KeyCode == Keys.Back || e.KeyCode == Keys.Delete)
+        {
+            HandleDeleteKey(e.KeyCode);
+            return;
+        }
+        
         if (e.KeyCode != Keys.Enter) return;
         
         var cursorPos = editor.SelectionStart;
@@ -1572,9 +1578,297 @@ public class NoteForm : Form
                 var indentStr = indent > 0 ? currentLine.Substring(0, indent) : "";
                 
                 var nextNumber = currentNumber + 1;
-                editor.SelectedText = "\r\n" + indentStr + nextNumber + ". ";
-                editor.SelectionStart = editor.SelectionStart;
+                var newLineText = "\r\n" + indentStr + nextNumber + ". ";
+                editor.SelectedText = newLineText;
+                
+                // Save cursor position relative to the new line
+                var cursorPosAfterInsert = editor.SelectionStart;
+                var newLineIndex = editor.GetLineFromCharIndex(cursorPosAfterInsert);
+                var cursorOffsetInLine = cursorPosAfterInsert - editor.GetFirstCharIndexFromLine(newLineIndex);
+                
+                // Update numbering for all lines below
+                var updatedText = editor.Text;
+                var lineSeparators = new[] { "\r\n", "\r", "\n" };
+                var allLines = updatedText.Split(lineSeparators, StringSplitOptions.None);
+                
+                // Detect line separator format
+                string lineSeparator = "\r\n";
+                if (updatedText.Contains("\r\n"))
+                    lineSeparator = "\r\n";
+                else if (updatedText.Contains("\n"))
+                    lineSeparator = "\n";
+                else if (updatedText.Contains("\r"))
+                    lineSeparator = "\r";
+                
+                int expectedNumber = nextNumber + 1;
+                for (int i = newLineIndex + 1; i < allLines.Length; i++)
+                {
+                    var line = allLines[i];
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+                    
+                    var trimmed = line.TrimStart();
+                    var match = Regex.Match(trimmed, @"^(\d+)\. ");
+                    if (match.Success && int.TryParse(match.Groups[1].Value, out int lineNumber))
+                    {
+                        // Only update if this line has the same or deeper indent level
+                        var lineIndent = line.Length - line.TrimStart().Length;
+                        if (lineIndent >= indent)
+                        {
+                            var lineIndentStr = lineIndent > 0 ? line.Substring(0, lineIndent) : "";
+                            allLines[i] = lineIndentStr + expectedNumber + ". " + trimmed.Substring(match.Length);
+                            expectedNumber++;
+                        }
+                        else
+                        {
+                            // If indent is less, we've reached a different list level, stop updating
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        // If line doesn't have numbering, stop updating
+                        break;
+                    }
+                }
+                
+                // Apply all changes at once
+                var newText = string.Join(lineSeparator, allLines);
+                editor.Text = newText;
+                
+                // Restore cursor position
+                var newLineStart = editor.GetFirstCharIndexFromLine(newLineIndex);
+                if (newLineStart >= 0)
+                {
+                    editor.SelectionStart = Math.Min(newLineStart + cursorOffsetInLine, editor.Text.Length);
+                }
             }
+        }
+    }
+
+    void HandleDeleteKey(Keys key)
+    {
+        var cursorPos = editor.SelectionStart;
+        var selectionLength = editor.SelectionLength;
+        var text = editor.Text;
+        
+        if (cursorPos < 0 || cursorPos > text.Length) return;
+        
+        int lineToCheck = -1;
+        int lineStartPos = -1;
+        
+        if (selectionLength > 0)
+        {
+            // Check if selection contains numbered lines
+            var selectedText = editor.SelectedText;
+            var lines = selectedText.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+            
+            // Check if any line in selection has numbering
+            bool hasNumbering = lines.Any(line => 
+            {
+                if (string.IsNullOrWhiteSpace(line)) return false;
+                var trimmed = line.TrimStart();
+                return Regex.IsMatch(trimmed, @"^\d+\. ");
+            });
+            
+            if (!hasNumbering) return;
+            
+            // Find the first line that will remain after deletion
+            var startLineIndex = editor.GetLineFromCharIndex(cursorPos);
+            lineToCheck = startLineIndex;
+            lineStartPos = editor.GetFirstCharIndexFromLine(lineToCheck);
+        }
+        else
+        {
+            // No selection - check what will be deleted
+            var currentLineIndex = editor.GetLineFromCharIndex(cursorPos);
+            var currentLineStart = editor.GetFirstCharIndexFromLine(currentLineIndex);
+            var currentLineEnd = currentLineStart;
+            while (currentLineEnd < text.Length && text[currentLineEnd] != '\n' && text[currentLineEnd] != '\r')
+            {
+                currentLineEnd++;
+            }
+            
+            if (key == Keys.Back)
+            {
+                // Backspace - check if cursor is at start of line
+                if (cursorPos == currentLineStart && currentLineIndex > 0)
+                {
+                    // Will delete previous line
+                    lineToCheck = currentLineIndex - 1;
+                    lineStartPos = editor.GetFirstCharIndexFromLine(lineToCheck);
+                }
+                else
+                {
+                    // Will delete character before cursor - check current line
+                    lineToCheck = currentLineIndex;
+                    lineStartPos = currentLineStart;
+                }
+            }
+            else // Delete
+            {
+                // Delete - check if cursor is at end of line
+                if (cursorPos == currentLineEnd)
+                {
+                    // Will delete next line
+                    if (currentLineIndex < editor.Lines.Length - 1)
+                    {
+                        lineToCheck = currentLineIndex + 1;
+                        lineStartPos = editor.GetFirstCharIndexFromLine(lineToCheck);
+                    }
+                }
+                else
+                {
+                    // Will delete character after cursor - check current line
+                    lineToCheck = currentLineIndex;
+                    lineStartPos = currentLineStart;
+                }
+            }
+            
+            if (lineToCheck < 0 || lineStartPos < 0) return;
+            
+            // Check if the line that will be affected has numbering
+            var lineEnd = lineStartPos;
+            while (lineEnd < text.Length && text[lineEnd] != '\n' && text[lineEnd] != '\r')
+            {
+                lineEnd++;
+            }
+            var lineLength = lineEnd - lineStartPos;
+            var line = text.Substring(lineStartPos, lineLength);
+            var trimmed = line.TrimStart();
+            
+            if (!Regex.IsMatch(trimmed, @"^\d+\. "))
+            {
+                // Line doesn't have numbering, let default handler work
+                return;
+            }
+        }
+        
+        // Save cursor position before deletion
+        var cursorBeforeDelete = cursorPos;
+        
+        // Perform deletion using default behavior
+        if (key == Keys.Back)
+        {
+            if (selectionLength > 0)
+            {
+                editor.SelectedText = "";
+            }
+            else
+            {
+                if (cursorPos > 0)
+                {
+                    editor.SelectionStart = cursorPos - 1;
+                    editor.SelectionLength = 1;
+                    editor.SelectedText = "";
+                }
+            }
+        }
+        else // Delete
+        {
+            if (selectionLength > 0)
+            {
+                editor.SelectedText = "";
+            }
+            else
+            {
+                if (cursorPos < text.Length)
+                {
+                    editor.SelectionStart = cursorPos;
+                    editor.SelectionLength = 1;
+                    editor.SelectedText = "";
+                }
+            }
+        }
+        
+        // Update numbering after deletion
+        // After deletion, lineToCheck might have changed, so find the correct line
+        var newCursorPos = editor.SelectionStart;
+        var newLineIndex = editor.GetLineFromCharIndex(newCursorPos);
+        UpdateNumberingAfterDelete(newLineIndex);
+    }
+
+    void UpdateNumberingAfterDelete(int startLineIndex)
+    {
+        var text = editor.Text;
+        if (string.IsNullOrEmpty(text)) return;
+        
+        var lineSeparators = new[] { "\r\n", "\r", "\n" };
+        var allLines = text.Split(lineSeparators, StringSplitOptions.None);
+        
+        if (startLineIndex < 0 || startLineIndex >= allLines.Length) return;
+        
+        // Detect line separator format
+        string lineSeparator = "\r\n";
+        if (text.Contains("\r\n"))
+            lineSeparator = "\r\n";
+        else if (text.Contains("\n"))
+            lineSeparator = "\n";
+        else if (text.Contains("\r"))
+            lineSeparator = "\r";
+        
+        // Find the first numbered line above or at startLineIndex to determine base number
+        int baseNumber = -1;
+        int baseIndent = -1;
+        
+        for (int i = startLineIndex; i >= 0; i--)
+        {
+            var line = allLines[i];
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            
+            var trimmed = line.TrimStart();
+            var match = Regex.Match(trimmed, @"^(\d+)\. ");
+            if (match.Success && int.TryParse(match.Groups[1].Value, out int number))
+            {
+                baseNumber = number;
+                baseIndent = line.Length - line.TrimStart().Length;
+                break;
+            }
+        }
+        
+        if (baseNumber < 0) return;
+        
+        // Update numbering starting from the line after startLineIndex
+        int expectedNumber = baseNumber + 1;
+        bool needsUpdate = false;
+        
+        for (int i = startLineIndex + 1; i < allLines.Length; i++)
+        {
+            var line = allLines[i];
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            
+            var trimmed = line.TrimStart();
+            var match = Regex.Match(trimmed, @"^(\d+)\. ");
+            if (match.Success && int.TryParse(match.Groups[1].Value, out int lineNumber))
+            {
+                var lineIndent = line.Length - line.TrimStart().Length;
+                if (lineIndent >= baseIndent)
+                {
+                    if (lineNumber != expectedNumber)
+                    {
+                        var lineIndentStr = lineIndent > 0 ? line.Substring(0, lineIndent) : "";
+                        allLines[i] = lineIndentStr + expectedNumber + ". " + trimmed.Substring(match.Length);
+                        needsUpdate = true;
+                    }
+                    expectedNumber++;
+                }
+                else
+                {
+                    break;
+                }
+            }
+            else
+            {
+                break;
+            }
+        }
+        
+        // Apply changes only if needed
+        if (needsUpdate)
+        {
+            var newText = string.Join(lineSeparator, allLines);
+            var cursorPos = editor.SelectionStart;
+            editor.Text = newText;
+            editor.SelectionStart = Math.Min(cursorPos, editor.Text.Length);
         }
     }
 
